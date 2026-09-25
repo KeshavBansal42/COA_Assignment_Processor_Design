@@ -5,7 +5,7 @@
 
 namespace risc201 {
 
-Cpu::Cpu() { reset(); }
+Cpu::Cpu() : pipeline_(*this, alu_, control_) { reset(); }
 
 void Cpu::load(const std::vector<uint32_t>& program) {
   reset();
@@ -18,9 +18,10 @@ void Cpu::load(const std::vector<uint32_t>& program) {
 }
 
 void Cpu::step() {
-  // Nothing executes the instruction yet, so a step only fetches and moves on.
-  assert(pc_ <= kCodeLimit);
-  pc_ = pc_ + 1;
+  if (halted_) {
+    return;
+  }
+  pipeline_.step();
 }
 
 void Cpu::run() {
@@ -35,6 +36,7 @@ void Cpu::reset() {
   sp_ = kInitialSp;
   flags_ = Flags{};
   halted_ = false;
+  pipeline_.reset();
 }
 
 uint32_t Cpu::reg(uint8_t index) const {
@@ -70,5 +72,7 @@ void Cpu::writeMem(uint32_t address, uint32_t value) {
 }
 
 bool Cpu::halted() const { return halted_; }
+
+void Cpu::setHalted(bool value) { halted_ = value; }
 
 }  // namespace risc201

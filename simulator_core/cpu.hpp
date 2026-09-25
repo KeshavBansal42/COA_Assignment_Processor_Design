@@ -8,6 +8,9 @@
 #include <vector>
 
 #include "isa_spec/isa201.h"
+#include "simulator_core/hardwired_control.hpp"
+#include "simulator_core/pipeline.hpp"
+#include "simulator_core/simple_alu.hpp"
 
 namespace risc201 {
 
@@ -45,6 +48,7 @@ class Cpu {
   void writeMem(uint32_t address, uint32_t value);
 
   bool halted() const;
+  void setHalted(bool value);
 
  private:
   std::array<uint32_t, kRegisterCount> registers_{};
@@ -53,6 +57,11 @@ class Cpu {
   uint32_t sp_ = kInitialSp;
   Flags flags_{};
   bool halted_ = false;
+
+  // Stand-ins until the real control unit and ALU are ready.
+  HardwiredControl control_{};
+  SimpleAlu alu_{};
+  Pipeline pipeline_;
 };
 
 }  // namespace risc201
