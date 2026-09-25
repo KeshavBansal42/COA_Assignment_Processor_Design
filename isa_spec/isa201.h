@@ -1,7 +1,7 @@
 #pragma once
 
-// RISC201 ISA header, frozen 25 Sept.
-// Keshav owns this file, every module includes it.
+// RISC201 ISA definitions, frozen 25 Sept.
+// Every module includes this file.
 
 #include <cstddef>
 #include <cstdint>
@@ -190,7 +190,7 @@ inline std::string toString(ExceptionCode code) {
   return "UNKNOWN";
 }
 
-// Operations Tanush's ALU has to implement.
+// Operations the ALU has to implement.
 enum class AluOp : uint8_t {
   ADD,
   SUB,
@@ -222,7 +222,7 @@ enum class ResultSrc : uint8_t {
   Memory,
 };
 
-// What Vikram's decode() returns for one instruction.
+// What the control unit's decode() returns for one instruction.
 struct ControlSignals {
   Opcode opcode = Opcode::NOP;
   AluOp aluOp = AluOp::ADD;

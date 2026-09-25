@@ -1,7 +1,7 @@
 # RISC201 ISA specification (frozen 25 Sept)
 
-Owner: Keshav. This file and `isa_spec/isa201.h` are the frozen contract, all modules build
-against them. Changes after the freeze need a team sync.
+This file and `isa_spec/isa201.h` are the frozen contract, all modules build against them.
+Changes after the freeze need a team sync.
 
 Words are 32-bit and memory is word addressed.
 
@@ -84,14 +84,14 @@ SP below 0xC00 is a stack overflow, SP above 0x1000 is a stack underflow.
 Each module exposes only these signatures to the simulator core, so every module can be built
 and tested on its own. Shared types live in `isa_spec/isa201.h`.
 
-| Module (owner) | Signature |
+| Module | Signature |
 |---|---|
-| Assembler (Vedansh) | `std::vector<uint32_t> assemble(const std::string& path)` |
-| Disassembler (Vedansh) | `std::string disassemble(uint32_t word)` |
-| ALU (Tanush) | `AluResult execute(AluOp op, uint32_t a, uint32_t b)` |
-| Control unit (Vikram) | `ControlSignals decode(uint32_t instr)` and `uint32_t getMicroPC()` |
-| Memory safety (Ayush) | `ExceptionCode checkStack(uint32_t sp, bool isPush)` and `ExceptionCode checkMem(uint32_t addr, bool isWrite)` |
-| Simulator (Keshav) | `void load(const std::vector<uint32_t>&)`, `void step()`, `void run()`, `void reset()` |
+| Assembler | `std::vector<uint32_t> assemble(const std::string& path)` |
+| Disassembler | `std::string disassemble(uint32_t word)` |
+| ALU | `AluResult execute(AluOp op, uint32_t a, uint32_t b)` |
+| Control unit | `ControlSignals decode(uint32_t instr)` and `uint32_t getMicroPC()` |
+| Memory safety | `ExceptionCode checkStack(uint32_t sp, bool isPush)` and `ExceptionCode checkMem(uint32_t addr, bool isWrite)` |
+| Simulator | `void load(const std::vector<uint32_t>&)`, `void step()`, `void run()`, `void reset()` |
 
 ## Open points
 
