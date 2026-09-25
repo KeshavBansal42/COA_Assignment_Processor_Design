@@ -17,3 +17,7 @@ add_test(NAME full_isa COMMAND test_full_isa)
 add_executable(test_exceptions test_exceptions.cpp)
 target_link_libraries(test_exceptions PRIVATE risc201_core)
 add_test(NAME exceptions COMMAND test_exceptions)
+
+add_executable(test_cli test_cli.cpp)
+target_link_libraries(test_cli PRIVATE risc201_core)
+add_test(NAME cli COMMAND test_cli)

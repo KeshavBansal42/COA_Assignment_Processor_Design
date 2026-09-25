@@ -18,8 +18,14 @@ add_library(risc201_core STATIC
   simulator_core/pipeline.cpp
   simulator_core/hardwired_control.cpp
   simulator_core/simple_alu.cpp
-  simulator_core/simple_safety.cpp)
+  simulator_core/simple_safety.cpp
+  simulator_core/cli.cpp)
 target_link_libraries(risc201_core PUBLIC risc201_isa)
+
+# Command line simulator.
+add_executable(risc201_sim simulator_core/main.cpp)
+set_target_properties(risc201_sim PROPERTIES OUTPUT_NAME risc201-sim)
+target_link_libraries(risc201_sim PRIVATE risc201_core)
 
 enable_testing()
 add_subdirectory(tests)
