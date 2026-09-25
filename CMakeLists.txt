@@ -12,5 +12,9 @@ add_compile_options(-Wall -Wextra)
 add_library(risc201_isa INTERFACE)
 target_include_directories(risc201_isa INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
 
+# Simulator core: machine state, pipeline and the run loop.
+add_library(risc201_core STATIC simulator_core/cpu.cpp)
+target_link_libraries(risc201_core PUBLIC risc201_isa)
+
 enable_testing()
 add_subdirectory(tests)
