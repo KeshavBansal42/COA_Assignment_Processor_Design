@@ -55,6 +55,10 @@ class Cpu {
   ExceptionCode exception() const;
   void setException(ExceptionCode value);
 
+  // True when the last step wrote memory, with the address it wrote to.
+  bool wroteMemory() const;
+  uint32_t lastWriteAddress() const;
+
  private:
   std::array<uint32_t, kRegisterCount> registers_{};
   std::array<uint32_t, kMemoryWords> memory_{};
@@ -63,6 +67,8 @@ class Cpu {
   Flags flags_{};
   bool halted_ = false;
   ExceptionCode exception_ = ExceptionCode::NONE;
+  bool wroteMemory_ = false;
+  uint32_t lastWriteAddress_ = 0;
 
   // Stand-ins until the real control unit, ALU and safety modules are ready.
   HardwiredControl control_{};

@@ -19,6 +19,7 @@ add_library(risc201_core STATIC
   simulator_core/hardwired_control.cpp
   simulator_core/simple_alu.cpp
   simulator_core/simple_safety.cpp
+  simulator_core/debugger.cpp
   simulator_core/cli.cpp)
 target_link_libraries(risc201_core PUBLIC risc201_isa)
 

@@ -21,6 +21,7 @@ void Cpu::step() {
   if (halted_ || exception_ != ExceptionCode::NONE) {
     return;
   }
+  wroteMemory_ = false;
   pipeline_.step();
 }
 
@@ -37,6 +38,8 @@ void Cpu::reset() {
   flags_ = Flags{};
   halted_ = false;
   exception_ = ExceptionCode::NONE;
+  wroteMemory_ = false;
+  lastWriteAddress_ = 0;
   pipeline_.reset();
 }
 
@@ -70,6 +73,8 @@ uint32_t Cpu::readMem(uint32_t address) const {
 void Cpu::writeMem(uint32_t address, uint32_t value) {
   assert(address <= kLastAddress);
   memory_[address] = value;
+  wroteMemory_ = true;
+  lastWriteAddress_ = address;
 }
 
 bool Cpu::halted() const { return halted_; }
@@ -79,5 +84,9 @@ void Cpu::setHalted(bool value) { halted_ = value; }
 ExceptionCode Cpu::exception() const { return exception_; }
 
 void Cpu::setException(ExceptionCode value) { exception_ = value; }
+
+bool Cpu::wroteMemory() const { return wroteMemory_; }
+
+uint32_t Cpu::lastWriteAddress() const { return lastWriteAddress_; }
 
 }  // namespace risc201
