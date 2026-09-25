@@ -47,9 +47,11 @@ class Pipeline {
     uint32_t result = 0;
     uint32_t storeValue = 0;
     uint32_t memoryAddress = 0;
-    Flags flags{};
-    bool redirect = false;
+    uint32_t nextSp = 0;
     uint32_t target = 0;
+    Flags flags{};
+    bool updateSp = false;
+    bool redirect = false;
   };
 
   void fetch();

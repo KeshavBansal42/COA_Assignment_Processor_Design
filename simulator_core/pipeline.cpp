@@ -4,6 +4,26 @@
 
 namespace risc201 {
 
+namespace {
+
+// BEQ/BNE test Z, BLT/BGE compare the sign and overflow flags.
+bool branchTaken(Opcode opcode, const Flags& flags) {
+  switch (opcode) {
+    case Opcode::BEQ:
+      return flags.z;
+    case Opcode::BNE:
+      return !flags.z;
+    case Opcode::BLT:
+      return flags.n != flags.v;
+    case Opcode::BGE:
+      return flags.n == flags.v;
+    default:
+      return false;
+  }
+}
+
+}  // namespace
+
 Pipeline::Pipeline(Cpu& cpu, Alu& alu, ControlUnit& control)
     : cpu_(cpu), alu_(alu), control_(control) {}
 
@@ -65,12 +85,30 @@ void Pipeline::execute() {
     return;
   }
 
-  if (signals.memRead || signals.memWrite) {
+  if (signals.push) {
+    // PUSH and CALL put the item at the new top of the stack.
+    exWb_.memoryAddress = cpu_.sp() - 1;
+    exWb_.storeValue = signals.opcode == Opcode::CALL ? idEx_.pc + 1
+                                                      : cpu_.reg(decodeRd(idEx_.instruction));
+    exWb_.nextSp = cpu_.sp() - 1;
+    exWb_.updateSp = true;
+  } else if (signals.pop) {
+    exWb_.memoryAddress = cpu_.sp();
+    exWb_.nextSp = cpu_.sp() + 1;
+    exWb_.updateSp = true;
+  } else if (signals.ret) {
+    // RET jumps to the address sitting on top of the stack.
+    exWb_.target = cpu_.readMem(cpu_.sp());
+    exWb_.nextSp = cpu_.sp() + 1;
+    exWb_.updateSp = true;
+    exWb_.redirect = true;
+  } else if (signals.memRead || signals.memWrite) {
+    // LW and SW add the immediate to the base register.
     exWb_.memoryAddress = aluResult.value;
     exWb_.storeValue = cpu_.reg(decodeRd(idEx_.instruction));
   }
 
-  if (signals.jump) {
+  if (signals.jump || (signals.branch && branchTaken(signals.opcode, cpu_.flags()))) {
     exWb_.target = idEx_.pc + 1 + static_cast<uint32_t>(decodeOffset(idEx_.instruction));
     exWb_.redirect = true;
   }
@@ -103,6 +141,10 @@ void Pipeline::writeBack() {
 
   if (signals.writeFlags) {
     cpu_.setFlags(exWb_.flags);
+  }
+
+  if (exWb_.updateSp) {
+    cpu_.setSp(exWb_.nextSp);
   }
 
   if (exWb_.redirect) {
