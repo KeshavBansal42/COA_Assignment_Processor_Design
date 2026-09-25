@@ -17,7 +17,8 @@ add_library(risc201_core STATIC
   simulator_core/cpu.cpp
   simulator_core/pipeline.cpp
   simulator_core/hardwired_control.cpp
-  simulator_core/simple_alu.cpp)
+  simulator_core/simple_alu.cpp
+  simulator_core/simple_safety.cpp)
 target_link_libraries(risc201_core PUBLIC risc201_isa)
 
 enable_testing()

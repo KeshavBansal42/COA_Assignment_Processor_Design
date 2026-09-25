@@ -13,10 +13,11 @@ namespace risc201 {
 class Alu;
 class ControlUnit;
 class Cpu;
+class MemorySafety;
 
 class Pipeline {
  public:
-  Pipeline(Cpu& cpu, Alu& alu, ControlUnit& control);
+  Pipeline(Cpu& cpu, Alu& alu, ControlUnit& control, MemorySafety& safety);
 
   // Runs one instruction through the four stages.
   void step();
@@ -44,6 +45,7 @@ class Pipeline {
   struct ExWb {
     ControlSignals signals{};
     uint32_t instruction = 0;
+    uint32_t pc = 0;
     uint32_t result = 0;
     uint32_t storeValue = 0;
     uint32_t memoryAddress = 0;
@@ -59,9 +61,13 @@ class Pipeline {
   void execute();
   void writeBack();
 
+  // True once the CPU has an exception, which stops the remaining stages.
+  bool stopped() const;
+
   Cpu& cpu_;
   Alu& alu_;
   ControlUnit& control_;
+  MemorySafety& safety_;
 
   IfId ifId_{};
   IdEx idEx_{};

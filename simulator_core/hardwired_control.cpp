@@ -6,6 +6,11 @@ ControlSignals HardwiredControl::decode(uint32_t instr) {
   ControlSignals signals;
   signals.opcode = decodeOpcode(instr);
 
+  if (!isDefinedOpcode(signals.opcode)) {
+    signals.illegal = true;
+    return signals;
+  }
+
   switch (signals.opcode) {
     case Opcode::NOP:
       break;

@@ -11,6 +11,7 @@
 #include "simulator_core/hardwired_control.hpp"
 #include "simulator_core/pipeline.hpp"
 #include "simulator_core/simple_alu.hpp"
+#include "simulator_core/simple_safety.hpp"
 
 namespace risc201 {
 
@@ -24,11 +25,11 @@ class Cpu {
   // Runs one instruction.
   void step();
 
-  // Runs until HALT or until PC leaves the code region.
+  // Runs until HALT, an exception or the end of the code region.
   void run();
 
-  // Puts the registers, PC, SP, FLAGS and the halt flag back to their start values.
-  // Memory is kept so the loaded program survives a reset.
+  // Puts the registers, PC, SP, FLAGS, the halt flag and the exception back to
+  // their start values. Memory is kept so the loaded program survives a reset.
   void reset();
 
   uint32_t reg(uint8_t index) const;
@@ -50,6 +51,10 @@ class Cpu {
   bool halted() const;
   void setHalted(bool value);
 
+  // NONE until an instruction raises an exception, which stops the machine.
+  ExceptionCode exception() const;
+  void setException(ExceptionCode value);
+
  private:
   std::array<uint32_t, kRegisterCount> registers_{};
   std::array<uint32_t, kMemoryWords> memory_{};
@@ -57,10 +62,12 @@ class Cpu {
   uint32_t sp_ = kInitialSp;
   Flags flags_{};
   bool halted_ = false;
+  ExceptionCode exception_ = ExceptionCode::NONE;
 
-  // Stand-ins until the real control unit and ALU are ready.
+  // Stand-ins until the real control unit, ALU and safety modules are ready.
   HardwiredControl control_{};
   SimpleAlu alu_{};
+  SimpleSafety safety_{};
   Pipeline pipeline_;
 };
 

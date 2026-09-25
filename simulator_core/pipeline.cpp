@@ -24,13 +24,25 @@ bool branchTaken(Opcode opcode, const Flags& flags) {
 
 }  // namespace
 
-Pipeline::Pipeline(Cpu& cpu, Alu& alu, ControlUnit& control)
-    : cpu_(cpu), alu_(alu), control_(control) {}
+Pipeline::Pipeline(Cpu& cpu, Alu& alu, ControlUnit& control, MemorySafety& safety)
+    : cpu_(cpu), alu_(alu), control_(control), safety_(safety) {}
 
 void Pipeline::step() {
   fetch();
+  if (stopped()) {
+    return;
+  }
+
   decode();
+  if (stopped()) {
+    return;
+  }
+
   execute();
+  if (stopped()) {
+    return;
+  }
+
   writeBack();
 }
 
@@ -40,10 +52,18 @@ void Pipeline::reset() {
   exWb_ = ExWb{};
 }
 
+bool Pipeline::stopped() const { return cpu_.exception() != ExceptionCode::NONE; }
+
 void Pipeline::fetch() {
+  // PC is only updated in write back, so it still points at the faulting
+  // instruction when something goes wrong.
+  if (cpu_.pc() > kCodeLimit) {
+    cpu_.setException(ExceptionCode::PC_OUT_OF_RANGE);
+    return;
+  }
+
   ifId_.pc = cpu_.pc();
   ifId_.instruction = cpu_.readMem(ifId_.pc);
-  cpu_.setPc(ifId_.pc + 1);
 }
 
 void Pipeline::decode() {
@@ -51,6 +71,11 @@ void Pipeline::decode() {
   idEx_.instruction = ifId_.instruction;
   idEx_.pc = ifId_.pc;
   idEx_.signals = control_.decode(idEx_.instruction);
+
+  if (idEx_.signals.illegal) {
+    cpu_.setException(ExceptionCode::ILLEGAL_INSTRUCTION);
+    return;
+  }
 
   const uint8_t rs = decodeRs(idEx_.instruction);
   const uint8_t rt = decodeRt(idEx_.instruction);
@@ -72,31 +97,47 @@ void Pipeline::execute() {
   const ControlSignals& signals = idEx_.signals;
   exWb_.signals = signals;
   exWb_.instruction = idEx_.instruction;
-
-  if (signals.illegal) {
-    return;
-  }
-
-  const AluResult aluResult = alu_.execute(signals.aluOp, idEx_.operandA, idEx_.operandB);
-  exWb_.result = aluResult.value;
-  exWb_.flags = aluResult.flags;
+  exWb_.pc = idEx_.pc;
 
   if (signals.halt) {
     return;
   }
 
+  const AluResult aluResult = alu_.execute(signals.aluOp, idEx_.operandA, idEx_.operandB);
+  if (aluResult.exception != ExceptionCode::NONE) {
+    cpu_.setException(aluResult.exception);
+    return;
+  }
+  exWb_.result = aluResult.value;
+  exWb_.flags = aluResult.flags;
+
   if (signals.push) {
     // PUSH and CALL put the item at the new top of the stack.
+    const ExceptionCode stack = safety_.checkStack(cpu_.sp(), true);
+    if (stack != ExceptionCode::NONE) {
+      cpu_.setException(stack);
+      return;
+    }
     exWb_.memoryAddress = cpu_.sp() - 1;
     exWb_.storeValue = signals.opcode == Opcode::CALL ? idEx_.pc + 1
                                                       : cpu_.reg(decodeRd(idEx_.instruction));
     exWb_.nextSp = cpu_.sp() - 1;
     exWb_.updateSp = true;
   } else if (signals.pop) {
+    const ExceptionCode stack = safety_.checkStack(cpu_.sp(), false);
+    if (stack != ExceptionCode::NONE) {
+      cpu_.setException(stack);
+      return;
+    }
     exWb_.memoryAddress = cpu_.sp();
     exWb_.nextSp = cpu_.sp() + 1;
     exWb_.updateSp = true;
   } else if (signals.ret) {
+    const ExceptionCode stack = safety_.checkStack(cpu_.sp(), false);
+    if (stack != ExceptionCode::NONE) {
+      cpu_.setException(stack);
+      return;
+    }
     // RET jumps to the address sitting on top of the stack.
     exWb_.target = cpu_.readMem(cpu_.sp());
     exWb_.nextSp = cpu_.sp() + 1;
@@ -104,6 +145,11 @@ void Pipeline::execute() {
     exWb_.redirect = true;
   } else if (signals.memRead || signals.memWrite) {
     // LW and SW add the immediate to the base register.
+    const ExceptionCode memory = safety_.checkMem(aluResult.value, signals.memWrite);
+    if (memory != ExceptionCode::NONE) {
+      cpu_.setException(memory);
+      return;
+    }
     exWb_.memoryAddress = aluResult.value;
     exWb_.storeValue = cpu_.reg(decodeRd(idEx_.instruction));
   }
@@ -116,10 +162,6 @@ void Pipeline::execute() {
 
 void Pipeline::writeBack() {
   const ControlSignals& signals = exWb_.signals;
-
-  if (signals.illegal) {
-    return;
-  }
 
   if (signals.halt) {
     cpu_.setHalted(true);
@@ -147,9 +189,7 @@ void Pipeline::writeBack() {
     cpu_.setSp(exWb_.nextSp);
   }
 
-  if (exWb_.redirect) {
-    cpu_.setPc(exWb_.target);
-  }
+  cpu_.setPc(exWb_.redirect ? exWb_.target : exWb_.pc + 1);
 }
 
 }  // namespace risc201

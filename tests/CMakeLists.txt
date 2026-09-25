@@ -13,3 +13,7 @@ add_test(NAME pipeline COMMAND test_pipeline)
 add_executable(test_full_isa test_full_isa.cpp)
 target_link_libraries(test_full_isa PRIVATE risc201_core)
 add_test(NAME full_isa COMMAND test_full_isa)
+
+add_executable(test_exceptions test_exceptions.cpp)
+target_link_libraries(test_exceptions PRIVATE risc201_core)
+add_test(NAME exceptions COMMAND test_exceptions)
