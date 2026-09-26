@@ -31,3 +31,24 @@ class MemorySafetyImpl : public MemorySafety {
 std::string exceptionToString(ExceptionCode code);
 
 }  // namespace risc201
+
+// tracks exception details for debug
+class ExceptionTracker {
+ public:
+  ExceptionTracker() { reset(); }
+
+  // save error details
+  void logException(ExceptionCode code, uint32_t addr, uint64_t currentCycle);
+  
+  // clear tracker
+  void reset();
+
+  ExceptionCode getLastError() const { return lastError; }
+  uint32_t getFaultAddress() const { return faultAddress; }
+  uint64_t getCycle() const { return cycle; }
+
+ private:
+  ExceptionCode lastError;
+  uint32_t faultAddress;
+  uint64_t cycle;
+};

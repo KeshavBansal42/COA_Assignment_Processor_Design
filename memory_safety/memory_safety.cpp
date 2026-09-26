@@ -57,3 +57,17 @@ std::string exceptionToString(ExceptionCode code) {
 }
 
 }  // namespace risc201
+
+// save exception info
+void ExceptionTracker::logException(ExceptionCode code, uint32_t addr, uint64_t currentCycle) {
+  lastError = code;
+  faultAddress = addr;
+  cycle = currentCycle;
+}
+
+// clear all error states
+void ExceptionTracker::reset() {
+  lastError = ExceptionCode::NONE;
+  faultAddress = 0;
+  cycle = 0;
+}
