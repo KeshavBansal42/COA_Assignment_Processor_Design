@@ -30,6 +30,9 @@ class MemorySafetyImpl : public MemorySafety {
 
 std::string exceptionToString(ExceptionCode code);
 
+// draw ascii visual of stack memory
+void renderStackAscii(const uint32_t* memory, uint32_t sp, uint32_t maxDepth = 16);
+
 }  // namespace risc201
 
 // tracks exception details for debug

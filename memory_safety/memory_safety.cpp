@@ -1,5 +1,7 @@
 #include "memory_safety/memory_safety.h"
 #include <string>
+#include <iostream>
+#include <iomanip>
 
 namespace risc201 {
 
@@ -79,4 +81,41 @@ ExceptionCode MemorySafetyImpl::checkPC(uint32_t pc) {
     return ExceptionCode::PC_OUT_OF_RANGE;
   }
   return ExceptionCode::NONE;
+}
+
+// render ascii stack frame
+void renderStackAscii(const uint32_t* memory, uint32_t sp, uint32_t maxDepth) {
+  std::cout << "+----------------- STACK -----------------+\n";
+  
+  // calculate start address to center around sp
+  uint32_t startAddr = sp + (maxDepth / 2);
+  
+  // cant go above initial stack pointer
+  if (startAddr > 0x1000) {
+    startAddr = 0x1000;
+  }
+  
+  for (uint32_t i = 0; i < maxDepth; i++) {
+    if (startAddr == 0) break;
+    uint32_t currentAddr = startAddr - 1 - i;
+    
+    // stop printing if we cross bottom boundary
+    if (currentAddr < 0x0C00) break;
+    
+    uint32_t val = memory[currentAddr];
+    
+    // draw box with hex and dec values
+    std::cout << "| 0x" << std::hex << std::uppercase << std::setw(4) << std::setfill('0') << currentAddr << " | ";
+    std::cout << "0x" << std::hex << std::setw(8) << std::setfill('0') << val << " | ";
+    std::cout << std::dec << std::setw(10) << std::setfill(' ') << val << " |";
+    
+    // add pointer marker for sp
+    if (currentAddr == sp) {
+      std::cout << " <-- SP";
+    }
+    
+    std::cout << "\n";
+  }
+  
+  std::cout << "+-----------------------------------------+\n";
 }
