@@ -1,0 +1,11 @@
+; risc201 demo - loop
+; Adds 10 down to 1, the result 55 ends up in r3.
+
+4440000a  ; LDI  r1, 10
+44800000  ; LDI  r2, 0
+44c00000  ; LDI  r3, 0
+08cc4000  ; ADD  r3, r3, r1
+4047ffff  ; ADDI r1, r1, -1
+34048000  ; CMP  r1, r2
+8bfffffc  ; BNE  -4
+04000000  ; HALT

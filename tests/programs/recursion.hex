@@ -1,0 +1,17 @@
+; risc201 demo - recursion
+; sum(4) = 4 + 3 + 2 + 1, the result 10 ends up in r2.
+
+44400004  ; LDI  r1, 4
+44c00000  ; LDI  r3, 0
+94000001  ; CALL +1
+04000000  ; HALT
+3404c000  ; CMP  r1, r3
+84000006  ; BEQ  +6
+50400000  ; PUSH r1
+4047ffff  ; ADDI r1, r1, -1
+97fffffb  ; CALL -5
+55000000  ; POP  r4
+08908000  ; ADD  r2, r4, r2
+58000000  ; RET
+44800000  ; LDI  r2, 0
+58000000  ; RET

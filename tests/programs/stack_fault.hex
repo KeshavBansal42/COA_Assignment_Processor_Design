@@ -1,0 +1,6 @@
+; risc201 demo - deliberate stack fault
+; CALL keeps calling itself, so the return addresses fill the stack
+; until PUSH would take SP below 0xC00 and STACK_OVERFLOW is raised.
+
+44400001  ; LDI  r1, 1
+97ffffff  ; CALL -1
