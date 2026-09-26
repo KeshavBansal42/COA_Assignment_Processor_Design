@@ -1,4 +1,5 @@
 #include "simulator_core/cli.hpp"
+#include "memory_safety/memory_safety.h"
 
 #include <fstream>
 #include <iomanip>
@@ -117,7 +118,18 @@ bool Cli::execute(const std::string& line) {
     } else {
       out_ << "usage: symbols <file>\n";
     }
-  } else if (command == "help") {
+  } 
+  
+  //added after memory_safety part
+  else if (command == "stack") {
+    int depth = 16;
+    if (!(input >> depth)) {
+      depth = 16; // default depth if user doesnt provide one
+    }
+    commandStack(depth);
+  } 
+  
+  else if (command == "help") {
     printHelp();
   } else if (command == "quit" || command == "exit") {
     return false;
@@ -223,6 +235,12 @@ void Cli::commandMem(uint32_t start, uint32_t count) const {
   if (count % 8 != 0) {
     out_ << "\n";
   }
+}
+
+//added after memory_safety
+void Cli::commandStack(int maxDepth) const {
+  // run our ascii visualizer
+  renderStackAscii(cpu_.rawMemory(), cpu_.sp(), maxDepth);
 }
 
 void Cli::commandBreak(const std::string& target) {
@@ -349,7 +367,7 @@ void Cli::printStop() const {
 
 void Cli::printStatus() const {
   if (cpu_.exception() != ExceptionCode::NONE) {
-    out_ << "exception " << toString(cpu_.exception()) << " at PC 0x" << toHex(cpu_.pc())
+    out_ << "exception " << exceptionToString(cpu_.exception()) << " at PC 0x" << toHex(cpu_.pc())
          << "\n";
   } else if (cpu_.halted()) {
     out_ << "halted at PC 0x" << toHex(cpu_.pc()) << "\n";
