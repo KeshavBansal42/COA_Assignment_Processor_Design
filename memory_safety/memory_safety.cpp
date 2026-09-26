@@ -85,6 +85,11 @@ ExceptionCode MemorySafetyImpl::checkPC(uint32_t pc) {
 
 // render ascii stack frame
 void renderStackAscii(const uint32_t* memory, uint32_t sp, uint32_t maxDepth) {
+  // print warning in red if sp cross danger line
+  if (sp < 0x0C00) {
+    std::cout << "\033[31m*** STACK OVERFLOW DANGER ***\033[0m\n";
+  }
+
   std::cout << "+----------------- STACK -----------------+\n";
   
   // calculate start address to center around sp
