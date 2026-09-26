@@ -58,8 +58,6 @@ std::string exceptionToString(ExceptionCode code) {
   return "Unknown error";
 }
 
-}  // namespace risc201
-
 // save exception info
 void ExceptionTracker::logException(ExceptionCode code, uint32_t addr, uint64_t currentCycle) {
   lastError = code;
@@ -130,3 +128,5 @@ void renderStackAscii(const uint32_t* memory, uint32_t sp, uint32_t maxDepth) {
   
   std::cout << "+-----------------------------------------+\n";
 }
+
+}  // namespace risc201

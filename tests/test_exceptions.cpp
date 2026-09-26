@@ -9,6 +9,7 @@
 
 #include <fstream>
 #include <iomanip>
+#include <iostream>
 #include "tests/test_programs.hpp"
 
 using namespace risc201;

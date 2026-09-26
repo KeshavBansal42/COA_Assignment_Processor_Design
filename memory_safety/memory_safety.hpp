@@ -33,8 +33,6 @@ std::string exceptionToString(ExceptionCode code);
 // draw ascii visual of stack memory
 void renderStackAscii(const uint32_t* memory, uint32_t sp, uint32_t maxDepth = 16);
 
-}  // namespace risc201
-
 // tracks exception details for debug
 class ExceptionTracker {
  public:
@@ -55,3 +53,5 @@ class ExceptionTracker {
   uint32_t faultAddress;
   uint64_t cycle;
 };
+
+}  // namespace risc201
