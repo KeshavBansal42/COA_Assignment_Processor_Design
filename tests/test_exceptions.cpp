@@ -7,6 +7,10 @@
 #include "simulator_core/cpu.hpp"
 #include "memory_safety/memory_safety.h"
 
+#include <fstream>
+#include <iomanip>
+#include "tests/test_programs.h"
+
 using namespace risc201;
 
 static void testIllegalInstruction() {
@@ -191,6 +195,23 @@ void testTrackerFaultAddress() {
   assert(tracker.getCycle() == 0);
 }
 
+void exportHexPrograms() {
+  // helper lambda to save vector to a text file
+  auto saveHex = [](const std::string& name, const std::vector<uint32_t>& prog) {
+    std::ofstream file(name);
+    for (uint32_t word : prog) {
+      file << std::hex << std::setw(8) << std::setfill('0') << word << "\n";
+    }
+  };
+  
+  // write our programs to disk
+  saveHex("loop.hex", kLoopProgram);
+  saveHex("recursion.hex", kRecursionProgram);
+  saveHex("stack_fault.hex", kStackOverflowProgram);
+  
+  std::cout << "exported hex programs for demo!\n";
+}
+
 int main() {
   testIllegalInstruction();
   testPcOutOfRange();
@@ -204,5 +225,7 @@ int main() {
   testExceptionTracker();
   testExceptionToString();
   testTrackerFaultAddress();
+
+  exportHexPrograms();
   return 0;
 }
