@@ -1,4 +1,5 @@
 #include "memory_safety/memory_safety.h"
+#include <string>
 
 namespace risc201 {
 
@@ -34,6 +35,25 @@ ExceptionCode MemorySafetyImpl::checkStack(uint32_t sp, bool isPush) {
   return ExceptionCode::NONE;
 }
 
-
+// convert exception to nice readable string
+std::string exceptionToString(ExceptionCode code) {
+  switch (code) {
+    case ExceptionCode::NONE:
+      return "No exception";
+    case ExceptionCode::STACK_OVERFLOW:
+      return "Stack overflow (SP went below 0xC00)";
+    case ExceptionCode::STACK_UNDERFLOW:
+      return "Stack underflow (SP went above 0x1000)";
+    case ExceptionCode::INVALID_MEM_ACCESS:
+      return "Invalid memory access (out of bounds or code overwrite)";
+    case ExceptionCode::DIV_BY_ZERO:
+      return "Division by zero";
+    case ExceptionCode::ILLEGAL_INSTRUCTION:
+      return "Illegal instruction encountered";
+    case ExceptionCode::PC_OUT_OF_RANGE:
+      return "Program counter went out of code region";
+  }
+  return "Unknown error";
+}
 
 }  // namespace risc201

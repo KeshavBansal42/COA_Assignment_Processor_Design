@@ -28,4 +28,6 @@ class MemorySafetyImpl : public MemorySafety {
   ExceptionCode checkPC(uint32_t pc) override;
 };
 
+std::string exceptionToString(ExceptionCode code);
+
 }  // namespace risc201
