@@ -1,6 +1,6 @@
 #include <cassert>
 #include <iostream>
-#include "memory_safety/memory_safety.h"
+#include "memory_safety/memory_safety.hpp"
 
 using namespace risc201;
 

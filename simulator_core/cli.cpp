@@ -1,5 +1,5 @@
 #include "simulator_core/cli.hpp"
-#include "memory_safety/memory_safety.h"
+#include "memory_safety/memory_safety.hpp"
 
 #include <fstream>
 #include <iomanip>

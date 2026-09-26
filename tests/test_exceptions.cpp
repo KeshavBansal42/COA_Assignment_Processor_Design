@@ -5,11 +5,11 @@
 
 #include "isa_spec/isa201.h"
 #include "simulator_core/cpu.hpp"
-#include "memory_safety/memory_safety.h"
+#include "memory_safety/memory_safety.hpp"
 
 #include <fstream>
 #include <iomanip>
-#include "tests/test_programs.h"
+#include "tests/test_programs.hpp"
 
 using namespace risc201;
 

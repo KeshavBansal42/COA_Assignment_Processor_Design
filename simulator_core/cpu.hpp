@@ -13,7 +13,7 @@
 #include "simulator_core/simple_alu.hpp"
 #include "simulator_core/simple_safety.hpp"
 
-#include "memory_safety/memory_safety.h" //added after memory_safety part
+#include "memory_safety/memory_safety.hpp" //added after memory_safety part
 
 namespace risc201 {
 
@@ -79,7 +79,7 @@ class Cpu {
   HardwiredControl control_{};
   SimpleAlu alu_{};
   //SimpleSafety safety_{};
-  
+
   MemorySafetyImpl safety_{}; //changed with keshav's simple safety
 
   Pipeline pipeline_;
