@@ -71,3 +71,12 @@ void ExceptionTracker::reset() {
   faultAddress = 0;
   cycle = 0;
 }
+
+// check if pc is inside code bounds
+ExceptionCode MemorySafetyImpl::checkPC(uint32_t pc) {
+  // pc cant go above code limit 0x07FF
+  if (pc > 0x07FF) {
+    return ExceptionCode::PC_OUT_OF_RANGE;
+  }
+  return ExceptionCode::NONE;
+}
