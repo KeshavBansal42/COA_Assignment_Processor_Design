@@ -120,6 +120,12 @@ void renderStackAscii(const uint32_t* memory, uint32_t sp, uint32_t maxDepth) {
     }
     
     std::cout << "\n";
+
+    // guess frame boundry if value looks like a return address (code region)
+    if (val > 0 && val <= 0x07FF) {
+      std::cout << "+----------------- FRAME -----------------+\n";
+    }
+
   }
   
   std::cout << "+-----------------------------------------+\n";
