@@ -32,3 +32,8 @@ target_link_libraries(test_integration PRIVATE risc201_core)
 target_compile_definitions(test_integration
   PRIVATE RISC201_PROGRAMS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/programs")
 add_test(NAME integration COMMAND test_integration)
+
+add_executable(test_assembler test_assembler.cpp)
+target_link_libraries(test_assembler PRIVATE risc201_assembler)
+add_test(NAME assembler COMMAND test_assembler)
+
