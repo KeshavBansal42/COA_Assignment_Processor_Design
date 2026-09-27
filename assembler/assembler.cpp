@@ -76,6 +76,7 @@ uint8_t parseRegister(const std::string& token, int line) {
     error(line, "register index out of range [0..15]: '" + token + "'");
   }
   return static_cast<uint8_t>(regNum);
+
 }
 
 bool tryParseInteger(const std::string& token, int32_t& outVal) {
@@ -221,6 +222,25 @@ std::vector<std::string> splitOperands(const std::string& operandsStr, int line)
   return operands;
 }
 
+std::string deriveHexPath(const std::string& path) {
+  const size_t slashPos = path.find_last_of("/\\");
+  const size_t dotPos = path.rfind('.');
+  if (dotPos != std::string::npos && (slashPos == std::string::npos || dotPos > slashPos)) {
+    return path.substr(0, dotPos) + ".hex";
+  }
+  return path + ".hex";
+}
+
+void writeHexFile(const std::string& outputPath, const std::vector<uint32_t>& program) {
+  std::ofstream out(outputPath);
+  if (!out.is_open()) {
+    throw std::runtime_error("failed to create output file: " + outputPath);
+  }
+  for (uint32_t word : program) {
+    out << std::hex << std::setw(8) << std::setfill('0') << word << "\n";
+  }
+}
+
 const InstructionInfo* findInstructionByMnemonic(const std::string& mnemonic) {
   for (std::size_t i = 0; i < kInstructionCount; ++i) {
     if (mnemonic == kInstructionTable[i].mnemonic) {
@@ -290,10 +310,12 @@ void assemble(const std::string& path, std::vector<uint32_t>& outProgram) {
     const std::string& text = parsedLines[i].instructionText;
     const uint32_t pc = static_cast<uint32_t>(i);
 
+    // Split into mnemonic and remainder
     const size_t firstSpace = text.find_first_of(" \t");
     const std::string mnemonic = (firstSpace == std::string::npos) ? text : text.substr(0, firstSpace);
     const std::string operandsStr = (firstSpace == std::string::npos) ? "" : trim(text.substr(firstSpace + 1));
 
+    // Enforce strict uppercase on mnemonic
     for (char c : mnemonic) {
       if (std::isalpha(static_cast<unsigned char>(c)) && !std::isupper(static_cast<unsigned char>(c))) {
         error(line, "mnemonic must be strictly uppercase: '" + mnemonic + "'");
@@ -304,6 +326,7 @@ void assemble(const std::string& path, std::vector<uint32_t>& outProgram) {
     if (!info) {
       error(line, "unknown instruction mnemonic '" + mnemonic + "'");
     }
+
 
     const std::vector<std::string> operands = splitOperands(operandsStr, line);
     uint32_t encodedWord = 0;
@@ -333,6 +356,7 @@ void assemble(const std::string& path, std::vector<uint32_t>& outProgram) {
           const uint8_t rt = parseRegister(operands[1], line);
           encodedWord = encodeR(Opcode::CMP, 0, rs, rt);
         } else {
+          // ADD, SUB, MUL, DIV, AND, OR, XOR, SHL, SHR
           if (operands.size() != 3) {
             error(line, "'" + mnemonic + "' takes exactly 3 operands: RD, RS, RT");
           }
@@ -383,6 +407,7 @@ void assemble(const std::string& path, std::vector<uint32_t>& outProgram) {
       }
 
       case InstructionFormat::J: {
+        // JMP, BEQ, BNE, BLT, BGE, CALL
         if (operands.size() != 1) {
           error(line, "'" + mnemonic + "' takes exactly 1 target operand (offset or label)");
         }
@@ -394,6 +419,10 @@ void assemble(const std::string& path, std::vector<uint32_t>& outProgram) {
 
     outProgram.push_back(encodedWord);
   }
+
+  // Write pure machine code to <dir>/<stem>.hex
+  const std::string hexPath = deriveHexPath(path);
+  writeHexFile(hexPath, outProgram);
 }
 
 void assemble(const std::string& path) {
