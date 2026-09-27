@@ -221,6 +221,15 @@ std::vector<std::string> splitOperands(const std::string& operandsStr, int line)
   return operands;
 }
 
+const InstructionInfo* findInstructionByMnemonic(const std::string& mnemonic) {
+  for (std::size_t i = 0; i < kInstructionCount; ++i) {
+    if (mnemonic == kInstructionTable[i].mnemonic) {
+      return &kInstructionTable[i];
+    }
+  }
+  return nullptr;
+}
+
 }  // namespace
 
 void assemble(const std::string& path, std::vector<uint32_t>& outProgram) {
@@ -271,6 +280,119 @@ void assemble(const std::string& path, std::vector<uint32_t>& outProgram) {
     throw std::runtime_error("program size (" + std::to_string(instructionCount) +
                              " words) exceeds code region limit (" +
                              std::to_string(kCodeLimit + 1) + " words)");
+  }
+
+  // Pass 2: Parsing instructions and encoding words
+  outProgram.reserve(instructionCount);
+
+  for (size_t i = 0; i < parsedLines.size(); ++i) {
+    const int line = parsedLines[i].lineNumber;
+    const std::string& text = parsedLines[i].instructionText;
+    const uint32_t pc = static_cast<uint32_t>(i);
+
+    const size_t firstSpace = text.find_first_of(" \t");
+    const std::string mnemonic = (firstSpace == std::string::npos) ? text : text.substr(0, firstSpace);
+    const std::string operandsStr = (firstSpace == std::string::npos) ? "" : trim(text.substr(firstSpace + 1));
+
+    for (char c : mnemonic) {
+      if (std::isalpha(static_cast<unsigned char>(c)) && !std::isupper(static_cast<unsigned char>(c))) {
+        error(line, "mnemonic must be strictly uppercase: '" + mnemonic + "'");
+      }
+    }
+
+    const InstructionInfo* info = findInstructionByMnemonic(mnemonic);
+    if (!info) {
+      error(line, "unknown instruction mnemonic '" + mnemonic + "'");
+    }
+
+    const std::vector<std::string> operands = splitOperands(operandsStr, line);
+    uint32_t encodedWord = 0;
+
+    switch (info->format) {
+      case InstructionFormat::None: {
+        if (!operands.empty()) {
+          error(line, "'" + mnemonic + "' takes no operands, found: " + operandsStr);
+        }
+        encodedWord = encodeOpcode(info->opcode);
+        break;
+      }
+
+      case InstructionFormat::R: {
+        if (info->opcode == Opcode::NOT || info->opcode == Opcode::MOV) {
+          if (operands.size() != 2) {
+            error(line, "'" + mnemonic + "' takes exactly 2 operands: RD, RS");
+          }
+          const uint8_t rd = parseRegister(operands[0], line);
+          const uint8_t rs = parseRegister(operands[1], line);
+          encodedWord = encodeR(info->opcode, rd, rs, 0);
+        } else if (info->opcode == Opcode::CMP) {
+          if (operands.size() != 2) {
+            error(line, "CMP takes exactly 2 operands: RS, RT");
+          }
+          const uint8_t rs = parseRegister(operands[0], line);
+          const uint8_t rt = parseRegister(operands[1], line);
+          encodedWord = encodeR(Opcode::CMP, 0, rs, rt);
+        } else {
+          if (operands.size() != 3) {
+            error(line, "'" + mnemonic + "' takes exactly 3 operands: RD, RS, RT");
+          }
+          const uint8_t rd = parseRegister(operands[0], line);
+          const uint8_t rs = parseRegister(operands[1], line);
+          const uint8_t rt = parseRegister(operands[2], line);
+          encodedWord = encodeR(info->opcode, rd, rs, rt);
+        }
+        break;
+      }
+
+      case InstructionFormat::I: {
+        if (info->opcode == Opcode::ADDI) {
+          if (operands.size() != 3) {
+            error(line, "ADDI takes exactly 3 operands: RD, RS, imm");
+          }
+          const uint8_t rd = parseRegister(operands[0], line);
+          const uint8_t rs = parseRegister(operands[1], line);
+          const int32_t imm = parseImmediate(operands[2], line, symbols);
+          encodedWord = encodeI(Opcode::ADDI, rd, rs, imm);
+        } else if (info->opcode == Opcode::LDI) {
+          if (operands.size() != 2) {
+            error(line, "LDI takes exactly 2 operands: RD, imm");
+          }
+          const uint8_t rd = parseRegister(operands[0], line);
+          const int32_t imm = parseImmediate(operands[1], line, symbols);
+          encodedWord = encodeI(Opcode::LDI, rd, 0, imm);
+        } else if (info->opcode == Opcode::LW || info->opcode == Opcode::SW) {
+          if (operands.size() != 2) {
+            error(line, "'" + mnemonic + "' takes exactly 2 operands: RD, imm(RS)");
+          }
+          const uint8_t rd = parseRegister(operands[0], line);
+          const auto [rs, imm] = parseMemOperand(operands[1], line, symbols);
+          encodedWord = encodeI(info->opcode, rd, rs, imm);
+        } else if (info->opcode == Opcode::PUSH || info->opcode == Opcode::POP) {
+          if (operands.size() != 1) {
+            error(line, "'" + mnemonic + "' takes exactly 1 operand: RD");
+          }
+          const uint8_t rd = parseRegister(operands[0], line);
+          encodedWord = encodeI(info->opcode, rd, 0, 0);
+        } else if (info->opcode == Opcode::RET) {
+          if (!operands.empty()) {
+            error(line, "RET takes no operands");
+          }
+          encodedWord = encodeI(Opcode::RET, 0, 0, 0);
+        }
+        break;
+      }
+
+      case InstructionFormat::J: {
+        if (operands.size() != 1) {
+          error(line, "'" + mnemonic + "' takes exactly 1 target operand (offset or label)");
+        }
+        const int32_t offset = parseTarget(operands[0], line, symbols, pc);
+        encodedWord = encodeJ(info->opcode, offset);
+        break;
+      }
+    }
+
+    outProgram.push_back(encodedWord);
   }
 }
 
