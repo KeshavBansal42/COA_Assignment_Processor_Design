@@ -27,6 +27,11 @@ target_link_libraries(risc201_core PUBLIC risc201_isa)
 add_executable(risc201_sim simulator_core/main.cpp)
 set_target_properties(risc201_sim PROPERTIES OUTPUT_NAME risc201-sim)
 target_link_libraries(risc201_sim PRIVATE risc201_core)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+# Assembler module
+add_library(risc201_assembler STATIC assembler/assembler.cpp)
+target_link_libraries(risc201_assembler PUBLIC risc201_isa)
 
 enable_testing()
 add_subdirectory(tests)

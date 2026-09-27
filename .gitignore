@@ -1,3 +1,7 @@
 build/
 *.o
 *.a
+.agents
+graphify-out
+compile_commands.json
+
