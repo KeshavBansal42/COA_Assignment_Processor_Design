@@ -1,5 +1,6 @@
 #include "assembler.hpp"
 
+#include <cctype>
 #include <string>
 
 namespace risc201 {
@@ -17,15 +18,24 @@ namespace {
   return clean.substr(first, last - first + 1);
 }
 
-}  // namespace
-
-void assemble(const std::string& path, std::vector<uint32_t>& outProgram) {
-  (void)path;
-  (void)outProgram;
+[[maybe_unused]] bool isValidIdentifier(const std::string& id) {
+  if (id.empty() || (!std::isalpha(static_cast<unsigned char>(id[0])) && id[0] != '_')) {
+    return false;
+  }
+  for (size_t i = 1; i < id.size(); ++i) {
+    if (!std::isalnum(static_cast<unsigned char>(id[i])) && id[i] != '_') {
+      return false;
+    }
+  }
+  return true;
 }
 
-void assemble(const std::string& path) {
-  (void)path;
+}  // namespace
+
+void assemble(const std::string& /*path*/, std::vector<uint32_t>& /*outProgram*/) {
+}
+
+void assemble(const std::string& /*path*/) {
 }
 
 }  // namespace risc201
