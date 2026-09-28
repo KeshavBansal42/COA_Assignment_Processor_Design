@@ -1,6 +1,7 @@
 #include "assembler.hpp"
 
 #include <cctype>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -14,7 +15,7 @@ namespace {
 
 using SymbolTable = std::unordered_map<std::string, uint32_t>;
 
-[[maybe_unused]] std::string stripCommentsAndTrim(const std::string& line) {
+std::string stripCommentsAndTrim(const std::string& line) {
   const size_t comment = line.find_first_of(";#");
   const std::string clean = (comment == std::string::npos) ? line : line.substr(0, comment);
   const size_t first = clean.find_first_not_of(" \t\r\n");
@@ -25,7 +26,7 @@ using SymbolTable = std::unordered_map<std::string, uint32_t>;
   return clean.substr(first, last - first + 1);
 }
 
-[[maybe_unused]] bool isValidIdentifier(const std::string& id) {
+bool isValidIdentifier(const std::string& id) {
   if (id.empty() || (!std::isalpha(static_cast<unsigned char>(id[0])) && id[0] != '_')) {
     return false;
   }
@@ -37,7 +38,7 @@ using SymbolTable = std::unordered_map<std::string, uint32_t>;
   return true;
 }
 
-[[maybe_unused]] uint8_t parseRegister(const std::string& token, int line) {
+uint8_t parseRegister(const std::string& token, int line) {
   if (token.size() < 2 || token[0] != 'R') {
     throw std::runtime_error("Line " + std::to_string(line) + ": invalid register '" + token + "'");
   }
@@ -50,7 +51,7 @@ using SymbolTable = std::unordered_map<std::string, uint32_t>;
   return static_cast<uint8_t>(idx);
 }
 
-[[maybe_unused]] int32_t parseImmediate(const std::string& token, int line) {
+int32_t parseImmediate(const std::string& token, int line) {
   if (token.empty()) {
     throw std::runtime_error("Line " + std::to_string(line) + ": missing immediate value");
   }
@@ -75,7 +76,7 @@ using SymbolTable = std::unordered_map<std::string, uint32_t>;
   }
 }
 
-[[maybe_unused]] std::pair<uint8_t, int32_t> parseMemOperand(const std::string& token, int line) {
+std::pair<uint8_t, int32_t> parseMemOperand(const std::string& token, int line) {
   const size_t open = token.find('(');
   if (open == 0 || open == std::string::npos || token.back() != ')') {
     throw std::runtime_error("Line " + std::to_string(line) + ": invalid memory operand syntax '" + token + "', expected imm(RS)");
@@ -85,7 +86,7 @@ using SymbolTable = std::unordered_map<std::string, uint32_t>;
   return {rs, imm};
 }
 
-[[maybe_unused]] int32_t parseBranchTarget(const std::string& token, int line, const SymbolTable& symbols, uint32_t pc) {
+int32_t parseBranchTarget(const std::string& token, int line, const SymbolTable& symbols, uint32_t pc) {
   if (token.empty()) {
     throw std::runtime_error("Line " + std::to_string(line) + ": missing branch/jump target");
   }
@@ -101,6 +102,115 @@ using SymbolTable = std::unordered_map<std::string, uint32_t>;
     throw std::runtime_error("Line " + std::to_string(line) + ": branch target offset out of range: '" + token + "'");
   }
   return static_cast<int32_t>(offset);
+}
+
+const InstructionInfo* findInstruction(const std::string& mnemonic) {
+  for (size_t i = 0; i < kInstructionCount; ++i) {
+    if (mnemonic == kInstructionTable[i].mnemonic) {
+      return &kInstructionTable[i];
+    }
+  }
+  return nullptr;
+}
+
+std::vector<std::string> splitOperands(const std::string& str, int line) {
+  std::vector<std::string> ops;
+  if (str.empty()) return ops;
+  std::stringstream ss(str);
+  std::string item;
+  while (std::getline(ss, item, ',')) {
+    const size_t first = item.find_first_not_of(" \t\r\n");
+    if (first == std::string::npos) {
+      throw std::runtime_error("Line " + std::to_string(line) + ": empty operand between commas");
+    }
+    const size_t last = item.find_last_not_of(" \t\r\n");
+    ops.push_back(item.substr(first, last - first + 1));
+  }
+  return ops;
+}
+
+uint32_t encodeInstruction(const std::string& mnemonic, const std::string& operandsStr, int line, const SymbolTable& symbols, uint32_t pc) {
+  for (char c : mnemonic) {
+    if (std::isalpha(static_cast<unsigned char>(c)) && !std::isupper(static_cast<unsigned char>(c))) {
+      throw std::runtime_error("Line " + std::to_string(line) + ": mnemonic must be strictly uppercase: '" + mnemonic + "'");
+    }
+  }
+
+  const InstructionInfo* info = findInstruction(mnemonic);
+  if (!info) {
+    throw std::runtime_error("Line " + std::to_string(line) + ": unknown instruction mnemonic '" + mnemonic + "'");
+  }
+
+  const std::vector<std::string> ops = splitOperands(operandsStr, line);
+
+  switch (info->format) {
+    case InstructionFormat::None: {
+      if (!ops.empty()) {
+        throw std::runtime_error("Line " + std::to_string(line) + ": '" + mnemonic + "' takes no operands");
+      }
+      return encodeOpcode(info->opcode);
+    }
+    case InstructionFormat::R: {
+      if (info->opcode == Opcode::NOT || info->opcode == Opcode::MOV) {
+        if (ops.size() != 2) {
+          throw std::runtime_error("Line " + std::to_string(line) + ": '" + mnemonic + "' takes exactly 2 operands: RD, RS");
+        }
+        return encodeR(info->opcode, parseRegister(ops[0], line), parseRegister(ops[1], line), 0);
+      }
+      if (info->opcode == Opcode::CMP) {
+        if (ops.size() != 2) {
+          throw std::runtime_error("Line " + std::to_string(line) + ": CMP takes exactly 2 operands: RS, RT");
+        }
+        return encodeR(Opcode::CMP, 0, parseRegister(ops[0], line), parseRegister(ops[1], line));
+      }
+      if (ops.size() != 3) {
+        throw std::runtime_error("Line " + std::to_string(line) + ": '" + mnemonic + "' takes exactly 3 operands: RD, RS, RT");
+      }
+      return encodeR(info->opcode, parseRegister(ops[0], line), parseRegister(ops[1], line), parseRegister(ops[2], line));
+    }
+    case InstructionFormat::I: {
+      if (info->opcode == Opcode::ADDI) {
+        if (ops.size() != 3) {
+          throw std::runtime_error("Line " + std::to_string(line) + ": ADDI takes exactly 3 operands: RD, RS, imm");
+        }
+        return encodeI(Opcode::ADDI, parseRegister(ops[0], line), parseRegister(ops[1], line), parseImmediate(ops[2], line));
+      }
+      if (info->opcode == Opcode::LDI) {
+        if (ops.size() != 2) {
+          throw std::runtime_error("Line " + std::to_string(line) + ": LDI takes exactly 2 operands: RD, imm");
+        }
+        return encodeI(Opcode::LDI, parseRegister(ops[0], line), 0, parseImmediate(ops[1], line));
+      }
+      if (info->opcode == Opcode::LW || info->opcode == Opcode::SW) {
+        if (ops.size() != 2) {
+          throw std::runtime_error("Line " + std::to_string(line) + ": '" + mnemonic + "' takes exactly 2 operands: RD, imm(RS)");
+        }
+        const uint8_t rd = parseRegister(ops[0], line);
+        const auto [rs, imm] = parseMemOperand(ops[1], line);
+        return encodeI(info->opcode, rd, rs, imm);
+      }
+      if (info->opcode == Opcode::PUSH || info->opcode == Opcode::POP) {
+        if (ops.size() != 1) {
+          throw std::runtime_error("Line " + std::to_string(line) + ": '" + mnemonic + "' takes exactly 1 operand: RD");
+        }
+        return encodeI(info->opcode, parseRegister(ops[0], line), 0, 0);
+      }
+      if (info->opcode == Opcode::RET) {
+        if (!ops.empty()) {
+          throw std::runtime_error("Line " + std::to_string(line) + ": RET takes no operands");
+        }
+        return encodeI(Opcode::RET, 0, 0, 0);
+      }
+      throw std::runtime_error("Line " + std::to_string(line) + ": unhandled I-type instruction");
+    }
+    case InstructionFormat::J: {
+      if (ops.size() != 1) {
+        throw std::runtime_error("Line " + std::to_string(line) + ": '" + mnemonic + "' takes exactly 1 target operand");
+      }
+      return encodeJ(info->opcode, parseBranchTarget(ops[0], line, symbols, pc));
+    }
+  }
+  throw std::runtime_error("Line " + std::to_string(line) + ": invalid instruction format");
 }
 
 }  // namespace
