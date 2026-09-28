@@ -3,6 +3,9 @@
 #include <cctype>
 #include <stdexcept>
 #include <string>
+#include <utility>
+
+#include "isa_spec/isa201.h"
 
 namespace risc201 {
 
@@ -42,6 +45,41 @@ namespace {
     throw std::runtime_error("Line " + std::to_string(line) + ": register index out of range: " + token);
   }
   return static_cast<uint8_t>(idx);
+}
+
+[[maybe_unused]] int32_t parseImmediate(const std::string& token, int line) {
+  if (token.empty()) {
+    throw std::runtime_error("Line " + std::to_string(line) + ": missing immediate value");
+  }
+  try {
+    size_t idx = 0;
+    const int base = (token.size() > 2 && token[0] == '0' && (token[1] == 'x' || token[1] == 'X')) ? 16 : 10;
+    const long long val = std::stoll(token, &idx, base);
+    if (idx != token.size()) {
+      throw std::runtime_error("Line " + std::to_string(line) + ": invalid immediate syntax: '" + token + "'");
+    }
+    if (val < -131072 || val > 131071) {
+      if (val >= 0 && val <= 0x3FFFF) {
+        return signExtend(static_cast<uint32_t>(val), kImmediateBits);
+      }
+      throw std::runtime_error("Line " + std::to_string(line) + ": immediate value " + token + " out of 18-bit range");
+    }
+    return static_cast<int32_t>(val);
+  } catch (const std::runtime_error&) {
+    throw;
+  } catch (...) {
+    throw std::runtime_error("Line " + std::to_string(line) + ": invalid immediate operand: '" + token + "'");
+  }
+}
+
+[[maybe_unused]] std::pair<uint8_t, int32_t> parseMemOperand(const std::string& token, int line) {
+  const size_t open = token.find('(');
+  if (open == 0 || open == std::string::npos || token.back() != ')') {
+    throw std::runtime_error("Line " + std::to_string(line) + ": invalid memory operand syntax '" + token + "', expected imm(RS)");
+  }
+  const uint8_t rs = parseRegister(token.substr(open + 1, token.size() - open - 2), line);
+  const int32_t imm = parseImmediate(token.substr(0, open), line);
+  return {rs, imm};
 }
 
 }  // namespace
