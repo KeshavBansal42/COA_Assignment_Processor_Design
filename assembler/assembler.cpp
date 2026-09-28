@@ -3,6 +3,7 @@
 #include <cctype>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 #include <utility>
 
 #include "isa_spec/isa201.h"
@@ -10,6 +11,8 @@
 namespace risc201 {
 
 namespace {
+
+using SymbolTable = std::unordered_map<std::string, uint32_t>;
 
 [[maybe_unused]] std::string stripCommentsAndTrim(const std::string& line) {
   const size_t comment = line.find_first_of(";#");
@@ -80,6 +83,24 @@ namespace {
   const uint8_t rs = parseRegister(token.substr(open + 1, token.size() - open - 2), line);
   const int32_t imm = parseImmediate(token.substr(0, open), line);
   return {rs, imm};
+}
+
+[[maybe_unused]] int32_t parseBranchTarget(const std::string& token, int line, const SymbolTable& symbols, uint32_t pc) {
+  if (token.empty()) {
+    throw std::runtime_error("Line " + std::to_string(line) + ": missing branch/jump target");
+  }
+  if (token[0] == '+' || token[0] == '-' || std::isdigit(static_cast<unsigned char>(token[0]))) {
+    throw std::runtime_error("Line " + std::to_string(line) + ": manual PC offset not allowed, target must be a label: '" + token + "'");
+  }
+  const auto it = symbols.find(token);
+  if (it == symbols.end()) {
+    throw std::runtime_error("Line " + std::to_string(line) + ": undefined label '" + token + "'");
+  }
+  const int64_t offset = static_cast<int64_t>(it->second) - static_cast<int64_t>(pc + 1);
+  if (offset < -33554432 || offset > 33554431) {
+    throw std::runtime_error("Line " + std::to_string(line) + ": branch target offset out of range: '" + token + "'");
+  }
+  return static_cast<int32_t>(offset);
 }
 
 }  // namespace
