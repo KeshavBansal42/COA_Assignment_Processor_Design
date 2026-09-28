@@ -49,16 +49,16 @@ constexpr std::array<uint32_t, 64> buildControlRom() {
 
   // ALU I-Type operations (needs immediate)
   rom[static_cast<size_t>(Opcode::ADDI)] = REG_WRITE | WRITE_FLAGS | ALU_SRC_IMM | packAlu(AluOp::ADD);
-  rom[static_cast<size_t>(Opcode::LDI)]  = REG_WRITE | ALU_SRC_IMM | packAlu(AluOp::MOV);
+  rom[static_cast<size_t>(Opcode::LDI)]  = REG_WRITE | ALU_SRC_IMM | packAlu(AluOp::ADD); // uses ADD, not MOV
 
   // Memory Load/Store
   rom[static_cast<size_t>(Opcode::LW)] = REG_WRITE | MEM_READ | ALU_SRC_IMM | RES_SRC_MEM | packAlu(AluOp::ADD);
   rom[static_cast<size_t>(Opcode::SW)] = MEM_WRITE | ALU_SRC_IMM | packAlu(AluOp::ADD);
 
   // Stack operations
-  rom[static_cast<size_t>(Opcode::PUSH)] = PUSH;
-  rom[static_cast<size_t>(Opcode::POP)]  = POP | REG_WRITE;
-  rom[static_cast<size_t>(Opcode::RET)]  = RET;
+  rom[static_cast<size_t>(Opcode::PUSH)] = PUSH | MEM_WRITE;
+  rom[static_cast<size_t>(Opcode::POP)]  = POP | REG_WRITE | MEM_READ | RES_SRC_MEM;
+  rom[static_cast<size_t>(Opcode::RET)]  = RET | MEM_READ;
 
   // Control Flow (Branch and Jump)
   rom[static_cast<size_t>(Opcode::JMP)]  = JUMP;
@@ -67,8 +67,8 @@ constexpr std::array<uint32_t, 64> buildControlRom() {
   rom[static_cast<size_t>(Opcode::BLT)]  = BRANCH;
   rom[static_cast<size_t>(Opcode::BGE)]  = BRANCH;
   
-  // CALL is basically a JUMP and a PUSH combined!
-  rom[static_cast<size_t>(Opcode::CALL)] = JUMP | PUSH; 
+  // CALL is JUMP, PUSH, and a memory write
+  rom[static_cast<size_t>(Opcode::CALL)] = JUMP | PUSH | MEM_WRITE; 
 
   return rom;
 }

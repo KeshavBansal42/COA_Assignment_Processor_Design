@@ -8,7 +8,10 @@
 #include <vector>
 
 #include "isa_spec/isa201.h"
-#include "simulator_core/hardwired_control.hpp"
+//#include "simulator_core/hardwired_control.hpp"
+#include "control_unit/control_unit.hpp"
+// done after control unit
+
 #include "simulator_core/pipeline.hpp"
 #include "simulator_core/simple_alu.hpp"
 #include "simulator_core/simple_safety.hpp"
@@ -71,7 +74,10 @@ class Cpu {
   uint32_t lastWriteAddress_ = 0;
 
   // Stand-ins until the real control unit, ALU and safety modules are ready.
-  HardwiredControl control_{};
+  //HardwiredControl control_{};
+   MicroprogrammedControl control_{};
+  // done after control unit
+
   SimpleAlu alu_{};
   SimpleSafety safety_{};
   Pipeline pipeline_;
