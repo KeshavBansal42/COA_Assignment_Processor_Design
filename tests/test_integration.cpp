@@ -57,7 +57,7 @@ void testStackFaultProgram() {
   const std::string output =
       runCommands(cpu, "load " + programPath("stack_fault.hex") + "\nrun\n");
 
-  assert(output.find("STACK_OVERFLOW") != std::string::npos);
+  assert(output.find("Stack overflow") != std::string::npos);
   assert(cpu.exception() == ExceptionCode::STACK_OVERFLOW);
   assert(cpu.sp() == kStackBase);
 }

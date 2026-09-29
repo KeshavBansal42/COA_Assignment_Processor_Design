@@ -8,10 +8,15 @@
 #include <vector>
 
 #include "isa_spec/isa201.h"
-#include "simulator_core/hardwired_control.hpp"
+//#include "simulator_core/hardwired_control.hpp"
+#include "control_unit/control_unit.hpp"
+// done after control unit
+
 #include "simulator_core/pipeline.hpp"
 #include "simulator_core/simple_alu.hpp"
 #include "simulator_core/simple_safety.hpp"
+
+#include "memory_safety/memory_safety.hpp" //added after memory_safety part
 
 namespace risc201 {
 
@@ -48,6 +53,9 @@ class Cpu {
   uint32_t readMem(uint32_t address) const;
   void writeMem(uint32_t address, uint32_t value);
 
+    // get raw memory for stack visualizer
+  const uint32_t* rawMemory() const { return memory_.data(); } //added afer memory_safety part
+
   bool halted() const;
   void setHalted(bool value);
 
@@ -71,9 +79,15 @@ class Cpu {
   uint32_t lastWriteAddress_ = 0;
 
   // Stand-ins until the real control unit, ALU and safety modules are ready.
-  HardwiredControl control_{};
+  //HardwiredControl control_{};
+   MicroprogrammedControl control_{};
+  // done after control unit
+
   SimpleAlu alu_{};
-  SimpleSafety safety_{};
+  //SimpleSafety safety_{};
+
+  MemorySafetyImpl safety_{}; //changed with keshav's simple safety
+
   Pipeline pipeline_;
 };
 

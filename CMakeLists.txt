@@ -12,16 +12,23 @@ add_compile_options(-Wall -Wextra)
 add_library(risc201_isa INTERFACE)
 target_include_directories(risc201_isa INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
 
+# Memory safety module
+add_library(risc201_memory_safety STATIC
+  memory_safety/memory_safety.cpp)
+target_link_libraries(risc201_memory_safety PUBLIC risc201_isa)
+
 # Simulator core: machine state, pipeline and the run loop.
 add_library(risc201_core STATIC
   simulator_core/cpu.cpp
+  alu/alu.cpp
+  control_unit/control_unit.cpp
   simulator_core/pipeline.cpp
   simulator_core/hardwired_control.cpp
   simulator_core/simple_alu.cpp
   simulator_core/simple_safety.cpp
   simulator_core/debugger.cpp
   simulator_core/cli.cpp)
-target_link_libraries(risc201_core PUBLIC risc201_isa)
+target_link_libraries(risc201_core PUBLIC risc201_isa risc201_memory_safety)
 
 # Command line simulator.
 add_executable(risc201_sim simulator_core/main.cpp)
