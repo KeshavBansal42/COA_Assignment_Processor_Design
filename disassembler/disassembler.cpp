@@ -44,6 +44,14 @@ std::vector<uint32_t> readHexFile(const std::string& path) {
   return words;
 }
 
+void writeAsmFile(const std::string& path, const std::string& content) {
+  std::ofstream file(path);
+  if (!file.is_open()) {
+    throw std::runtime_error("could not open output assembly file: " + path);
+  }
+  file << content;
+}
+
 }  // namespace
 
 void disassemble(const std::string& /*hex_path*/) {
