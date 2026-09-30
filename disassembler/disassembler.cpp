@@ -147,7 +147,17 @@ std::string disassembleProgram(const std::vector<uint32_t>& program) {
 
 }  // namespace
 
-void disassemble(const std::string& /*hex_path*/) {
+void disassemble(const std::string& hex_path) {
+  const std::vector<uint32_t> program = readHexFile(hex_path);
+  const std::string asmContent = disassembleProgram(program);
+
+  const size_t dot = hex_path.rfind('.');
+  const size_t slash = hex_path.rfind('/');
+  const std::string asmPath = (dot != std::string::npos && (slash == std::string::npos || dot > slash))
+                                  ? hex_path.substr(0, dot) + ".s"
+                                  : hex_path + ".s";
+
+  writeAsmFile(asmPath, asmContent);
 }
 
 }  // namespace risc201
