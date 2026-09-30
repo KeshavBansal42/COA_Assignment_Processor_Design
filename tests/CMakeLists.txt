@@ -37,3 +37,7 @@ add_executable(test_assembler test_assembler.cpp)
 target_link_libraries(test_assembler PRIVATE risc201_assembler)
 add_test(NAME assembler COMMAND test_assembler)
 
+add_executable(test_disassembler test_disassembler.cpp)
+target_link_libraries(test_disassembler PRIVATE risc201_disassembler risc201_assembler)
+add_test(NAME disassembler COMMAND test_disassembler)
+
