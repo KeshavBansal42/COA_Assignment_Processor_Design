@@ -1,6 +1,8 @@
 #include "assembler.hpp"
 
 #include <cctype>
+#include <fstream>
+#include <iomanip>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -213,12 +215,88 @@ uint32_t encodeInstruction(const std::string& mnemonic, const std::string& opera
   throw std::runtime_error("Line " + std::to_string(line) + ": invalid instruction format");
 }
 
-}  // namespace
-
-void assemble(const std::string& /*path*/, std::vector<uint32_t>& /*outProgram*/) {
+void writeHexFile(const std::string& hexPath, const std::vector<uint32_t>& program) {
+  std::ofstream out(hexPath);
+  if (!out.is_open()) {
+    throw std::runtime_error("could not open output hex file: " + hexPath);
+  }
+  for (uint32_t word : program) {
+    out << std::hex << std::setw(8) << std::setfill('0') << word << "\n";
+  }
 }
 
-void assemble(const std::string& /*path*/) {
+}  // namespace
+
+void assemble(const std::string& path, std::vector<uint32_t>& outProgram) {
+  std::ifstream file(path);
+  if (!file.is_open()) {
+    throw std::runtime_error("could not open source file: " + path);
+  }
+
+  SymbolTable symbols;
+  struct LineItem {
+    int lineNum;
+    std::string text;
+  };
+  std::vector<LineItem> instructions;
+  std::string raw;
+  int lineNum = 0;
+
+  // Pass 1: Standalone labels & instruction collection
+  while (std::getline(file, raw)) {
+    lineNum++;
+    const std::string line = stripCommentsAndTrim(raw);
+    if (line.empty()) continue;
+
+    const size_t colon = line.find(':');
+    if (colon != std::string::npos) {
+      if (colon != line.size() - 1) {
+        throw std::runtime_error("Line " + std::to_string(lineNum) + ": inline labels not allowed, label must be on its own line");
+      }
+      const std::string label = line.substr(0, colon);
+      if (!isValidIdentifier(label)) {
+        throw std::runtime_error("Line " + std::to_string(lineNum) + ": invalid label identifier '" + label + "'");
+      }
+      if (symbols.find(label) != symbols.end()) {
+        throw std::runtime_error("Line " + std::to_string(lineNum) + ": duplicate label '" + label + "'");
+      }
+      symbols[label] = static_cast<uint32_t>(instructions.size());
+    } else {
+      instructions.push_back({lineNum, line});
+    }
+  }
+
+  if (instructions.size() > kCodeLimit + 1) {
+    throw std::runtime_error("program size (" + std::to_string(instructions.size()) +
+                             " words) exceeds code region limit (" + std::to_string(kCodeLimit + 1) + " words)");
+  }
+
+  // Pass 2: Encoding
+  outProgram.clear();
+  outProgram.reserve(instructions.size());
+
+  for (size_t pc = 0; pc < instructions.size(); ++pc) {
+    const std::string& text = instructions[pc].text;
+    const int line = instructions[pc].lineNum;
+    const size_t space = text.find_first_of(" \t");
+    const std::string mnemonic = (space == std::string::npos) ? text : text.substr(0, space);
+    const std::string operandsStr = (space == std::string::npos) ? "" : stripCommentsAndTrim(text.substr(space + 1));
+
+    outProgram.push_back(encodeInstruction(mnemonic, operandsStr, line, symbols, static_cast<uint32_t>(pc)));
+  }
+
+  // Inline hex path derivation
+  const size_t dot = path.rfind('.');
+  const size_t slash = path.rfind('/');
+  const std::string hexPath = (dot != std::string::npos && (slash == std::string::npos || dot > slash))
+                                  ? path.substr(0, dot) + ".hex"
+                                  : path + ".hex";
+  writeHexFile(hexPath, outProgram);
+}
+
+void assemble(const std::string& path) {
+  std::vector<uint32_t> program;
+  assemble(path, program);
 }
 
 }  // namespace risc201
