@@ -14,7 +14,7 @@
 
 #include "simulator_core/pipeline.hpp"
 #include "simulator_core/simple_alu.hpp"
-#include "simulator_core/simple_safety.hpp"
+//#include "simulator_core/simple_safety.hpp"
 
 #include "memory_safety/memory_safety.hpp" //added after memory_safety part
 
