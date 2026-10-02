@@ -41,12 +41,13 @@ void testAll27Instructions() {
       "PUSH R11\n"
       "POP R12\n"
       "RET\n"
-      "JMP -5\n"
-      "BEQ +10\n"
-      "BNE -1\n"
-      "BLT 0\n"
-      "BGE 100\n"
-      "CALL 2\n";
+      "target:\n"
+      "JMP target\n"
+      "BEQ target\n"
+      "BNE target\n"
+      "BLT target\n"
+      "BGE target\n"
+      "CALL target\n";
 
   writeTempFile(asmPath, src);
 
@@ -75,12 +76,12 @@ void testAll27Instructions() {
   assert(program[18] == risc201::encodeI(risc201::Opcode::PUSH, 11, 0, 0));
   assert(program[19] == risc201::encodeI(risc201::Opcode::POP, 12, 0, 0));
   assert(program[20] == risc201::encodeI(risc201::Opcode::RET, 0, 0, 0));
-  assert(program[21] == risc201::encodeJ(risc201::Opcode::JMP, -5));
-  assert(program[22] == risc201::encodeJ(risc201::Opcode::BEQ, 10));
-  assert(program[23] == risc201::encodeJ(risc201::Opcode::BNE, -1));
-  assert(program[24] == risc201::encodeJ(risc201::Opcode::BLT, 0));
-  assert(program[25] == risc201::encodeJ(risc201::Opcode::BGE, 100));
-  assert(program[26] == risc201::encodeJ(risc201::Opcode::CALL, 2));
+  assert(program[21] == risc201::encodeJ(risc201::Opcode::JMP, -1));
+  assert(program[22] == risc201::encodeJ(risc201::Opcode::BEQ, -2));
+  assert(program[23] == risc201::encodeJ(risc201::Opcode::BNE, -3));
+  assert(program[24] == risc201::encodeJ(risc201::Opcode::BLT, -4));
+  assert(program[25] == risc201::encodeJ(risc201::Opcode::BGE, -5));
+  assert(program[26] == risc201::encodeJ(risc201::Opcode::CALL, -6));
 
   // Verify pure hex output file was created beside the .s file
   std::ifstream hexFile("test_all_instructions.hex");
@@ -95,7 +96,7 @@ void testAll27Instructions() {
 }
 
 void testStrictUppercaseCasing() {
-  // Lowercase mnemonic must fail with line error
+  // Lowercase mnemonic must fail
   {
     const std::string path = "test_case_mnemonic.s";
     writeTempFile(path, "add R1, R2, R3\n");
@@ -111,7 +112,7 @@ void testStrictUppercaseCasing() {
     assert(threw);
   }
 
-  // Lowercase register must fail with line error
+  // Lowercase register must fail
   {
     const std::string path = "test_case_reg.s";
     writeTempFile(path, "ADD r1, R2, R3\n");
@@ -128,17 +129,18 @@ void testStrictUppercaseCasing() {
   }
 }
 
-void testLabelsStandaloneAndInline() {
+void testLabelsStandalone() {
   const std::string path = "test_labels.s";
   const std::string src =
-      "; Loop program using standalone and inline labels\n"
+      "; Loop program using standalone labels only\n"
       "LDI R1, 10\n"
       "LDI R2, 0\n"
       "loop:\n"
       "  ADDI R1, R1, -1\n"
       "  CMP R1, R2\n"
       "  BNE loop\n"
-      "done: HALT\n";
+      "done:\n"
+      "  HALT\n";
 
   writeTempFile(path, src);
 
@@ -193,7 +195,7 @@ void testErrorHandling() {
     assert(threw);
   }
 
-  // Duplicate label
+  // Duplicate label pointing to the second declaration line (line 3)
   {
     const std::string path = "test_dup_label.s";
     writeTempFile(path, "start:\n  NOP\nstart:\n  NOP\n");
@@ -202,7 +204,51 @@ void testErrorHandling() {
       risc201::assemble(path);
     } catch (const std::runtime_error& e) {
       threw = true;
-      assert(std::string(e.what()).find("duplicate label") != std::string::npos);
+      const std::string msg = e.what();
+      assert(msg.find("Line 3") != std::string::npos);
+      assert(msg.find("duplicate label") != std::string::npos);
+    }
+    assert(threw);
+  }
+
+  // Inline label must be rejected
+  {
+    const std::string path = "test_inline_label.s";
+    writeTempFile(path, "done: HALT\n");
+    bool threw = false;
+    try {
+      risc201::assemble(path);
+    } catch (const std::runtime_error& e) {
+      threw = true;
+      assert(std::string(e.what()).find("inline labels not allowed") != std::string::npos);
+    }
+    assert(threw);
+  }
+
+  // Manual numeric PC offset must be rejected (labels only)
+  {
+    const std::string path = "test_numeric_jump.s";
+    writeTempFile(path, "JMP -5\n");
+    bool threw = false;
+    try {
+      risc201::assemble(path);
+    } catch (const std::runtime_error& e) {
+      threw = true;
+      assert(std::string(e.what()).find("manual PC offset not allowed") != std::string::npos);
+    }
+    assert(threw);
+  }
+
+  // Bare (RS) without immediate must be rejected (must be 0(RS))
+  {
+    const std::string path = "test_bare_mem.s";
+    writeTempFile(path, "LW R1, (R2)\n");
+    bool threw = false;
+    try {
+      risc201::assemble(path);
+    } catch (const std::runtime_error& e) {
+      threw = true;
+      assert(std::string(e.what()).find("invalid memory operand syntax") != std::string::npos);
     }
     assert(threw);
   }
@@ -218,7 +264,6 @@ void testErrorHandling() {
       threw = true;
       assert(std::string(e.what()).find("register index out of range") != std::string::npos);
     }
-
     assert(threw);
   }
 
@@ -245,6 +290,9 @@ void cleanTempFiles() {
   std::remove("test_calls.hex");
   std::remove("test_undef_sym.s");
   std::remove("test_dup_label.s");
+  std::remove("test_inline_label.s");
+  std::remove("test_numeric_jump.s");
+  std::remove("test_bare_mem.s");
   std::remove("test_reg_oob.s");
 }
 
@@ -254,11 +302,10 @@ int main() {
   cleanTempFiles();
   testAll27Instructions();
   testStrictUppercaseCasing();
-  testLabelsStandaloneAndInline();
+  testLabelsStandalone();
   testForwardAndBackwardCalls();
   testErrorHandling();
   cleanTempFiles();
   std::cout << "All assembler unit tests passed!\n";
   return 0;
 }
-

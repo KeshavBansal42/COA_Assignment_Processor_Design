@@ -40,5 +40,9 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 add_library(risc201_assembler STATIC assembler/assembler.cpp)
 target_link_libraries(risc201_assembler PUBLIC risc201_isa)
 
+# Disassembler module
+add_library(risc201_disassembler STATIC disassembler/disassembler.cpp)
+target_link_libraries(risc201_disassembler PUBLIC risc201_isa)
+
 enable_testing()
 add_subdirectory(tests)

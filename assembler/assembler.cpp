@@ -1,6 +1,5 @@
-#include "assembler/assembler.hpp"
+#include "assembler.hpp"
 
-#include <algorithm>
 #include <cctype>
 #include <fstream>
 #include <iomanip>
@@ -8,246 +7,222 @@
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
-#include <vector>
+#include <utility>
+
+#include "isa_spec/isa201.h"
 
 namespace risc201 {
 
 namespace {
 
-[[noreturn]] void error(int line, const std::string& msg) {
-  throw std::runtime_error("Line " + std::to_string(line) + ": " + msg);
-}
+using SymbolTable = std::unordered_map<std::string, uint32_t>;
 
-std::string trim(const std::string& s) {
-  const size_t first = s.find_first_not_of(" \t\r\n");
+std::string stripCommentsAndTrim(const std::string& line) {
+  const size_t comment = line.find_first_of(";#");
+  const std::string clean = (comment == std::string::npos) ? line : line.substr(0, comment);
+  const size_t first = clean.find_first_not_of(" \t\r\n");
   if (first == std::string::npos) {
     return "";
   }
-  const size_t last = s.find_last_not_of(" \t\r\n");
-  return s.substr(first, last - first + 1);
+  const size_t last = clean.find_last_not_of(" \t\r\n");
+  return clean.substr(first, last - first + 1);
 }
 
-std::string stripComments(const std::string& line) {
-  const size_t commentPos = line.find_first_of(";#");
-  const std::string clean = (commentPos == std::string::npos) ? line : line.substr(0, commentPos);
-  return trim(clean);
-}
-
-bool isValidIdentifier(const std::string& s) {
-  if (s.empty()) {
+bool isValidIdentifier(const std::string& id) {
+  if (id.empty() || (!std::isalpha(static_cast<unsigned char>(id[0])) && id[0] != '_')) {
     return false;
   }
-  if (!std::isalpha(static_cast<unsigned char>(s[0])) && s[0] != '_') {
-    return false;
-  }
-  for (size_t i = 1; i < s.size(); ++i) {
-    if (!std::isalnum(static_cast<unsigned char>(s[i])) && s[i] != '_') {
+  for (size_t i = 1; i < id.size(); ++i) {
+    if (!std::isalnum(static_cast<unsigned char>(id[i])) && id[i] != '_') {
       return false;
     }
   }
   return true;
 }
 
-struct ParsedLine {
-  int lineNumber = 0;
-  std::string instructionText;
-};
-
 uint8_t parseRegister(const std::string& token, int line) {
-  if (token.empty() || token[0] != 'R') {
-    error(line, "invalid register '" + token + "': registers must be uppercase 'R0'..'R15'");
+  if (token.size() < 2 || token[0] != 'R') {
+    throw std::runtime_error("Line " + std::to_string(line) + ": invalid register '" + token + "'");
   }
-  const std::string numPart = token.substr(1);
-  if (numPart.empty()) {
-    error(line, "invalid register '" + token + "'");
+  const int idx = (token.size() == 2 && std::isdigit(token[1])) ? (token[1] - '0')
+                : (token.size() == 3 && token[1] == '1' && token[2] >= '0' && token[2] <= '5') ? (10 + token[2] - '0')
+                : -1;
+  if (idx < 0) {
+    throw std::runtime_error("Line " + std::to_string(line) + ": register index out of range: " + token);
   }
-  for (char c : numPart) {
-    if (!std::isdigit(static_cast<unsigned char>(c))) {
-      error(line, "invalid register '" + token + "'");
-    }
-  }
-  int regNum = -1;
-  try {
-    regNum = std::stoi(numPart);
-  } catch (const std::exception&) {
-    error(line, "invalid register '" + token + "'");
-  }
-  if (regNum < 0 || regNum > 15) {
-    error(line, "register index out of range [0..15]: '" + token + "'");
-  }
-  return static_cast<uint8_t>(regNum);
-
+  return static_cast<uint8_t>(idx);
 }
 
-bool tryParseInteger(const std::string& token, int32_t& outVal) {
+int32_t parseImmediate(const std::string& token, int line) {
   if (token.empty()) {
-    return false;
-  }
-  size_t idx = 0;
-  bool negative = false;
-  if (token[idx] == '+' || token[idx] == '-') {
-    if (token[idx] == '-') {
-      negative = true;
-    }
-    idx++;
-  }
-  if (idx >= token.size()) {
-    return false;
-  }
-  int base = 10;
-  if (token.compare(idx, 2, "0x") == 0 || token.compare(idx, 2, "0X") == 0) {
-    base = 16;
-    idx += 2;
-    if (idx >= token.size()) {
-      return false;
-    }
-  }
-  for (size_t i = idx; i < token.size(); ++i) {
-    const char c = token[i];
-    if (base == 10 && !std::isdigit(static_cast<unsigned char>(c))) {
-      return false;
-    }
-    if (base == 16 && !std::isxdigit(static_cast<unsigned char>(c))) {
-      return false;
-    }
+    throw std::runtime_error("Line " + std::to_string(line) + ": missing immediate value");
   }
   try {
-    long long val = std::stoll(token.substr(negative ? 1 : 0), nullptr, base);
-    if (negative) {
-      val = -val;
+    size_t idx = 0;
+    const int base = (token.size() > 2 && token[0] == '0' && (token[1] == 'x' || token[1] == 'X')) ? 16 : 10;
+    const long long val = std::stoll(token, &idx, base);
+    if (idx != token.size()) {
+      throw std::runtime_error("Line " + std::to_string(line) + ": invalid immediate syntax: '" + token + "'");
     }
-    outVal = static_cast<int32_t>(val);
-    return true;
-  } catch (...) {
-    return false;
-  }
-}
-
-int32_t parseImmediate(const std::string& token, int line,
-                       const std::unordered_map<std::string, uint32_t>& symbols) {
-  int32_t val = 0;
-  if (tryParseInteger(token, val)) {
     if (val < -131072 || val > 131071) {
-      error(line, "immediate value out of 18-bit signed range [-131072, 131071]: " + token);
+      if (val >= 0 && val <= 0x3FFFF) {
+        return signExtend(static_cast<uint32_t>(val), kImmediateBits);
+      }
+      throw std::runtime_error("Line " + std::to_string(line) + ": immediate value " + token + " out of 18-bit range");
     }
-    return val;
+    return static_cast<int32_t>(val);
+  } catch (const std::runtime_error&) {
+    throw;
+  } catch (...) {
+    throw std::runtime_error("Line " + std::to_string(line) + ": invalid immediate operand: '" + token + "'");
   }
-
-  const auto it = symbols.find(token);
-  if (it != symbols.end()) {
-    const int32_t addr = static_cast<int32_t>(it->second);
-    if (addr < -131072 || addr > 131071) {
-      error(line, "symbol address out of 18-bit signed range: " + token);
-    }
-    return addr;
-  }
-
-  error(line, "invalid immediate or undefined symbol '" + token + "'");
 }
 
-int32_t parseTarget(const std::string& token, int line,
-                    const std::unordered_map<std::string, uint32_t>& symbols, uint32_t currentPC) {
-  int32_t litVal = 0;
-  if (tryParseInteger(token, litVal)) {
-    if (litVal < -33554432 || litVal > 33554431) {
-      error(line, "jump offset out of 26-bit signed range: " + token);
-    }
-    return litVal;
+std::pair<uint8_t, int32_t> parseMemOperand(const std::string& token, int line) {
+  const size_t open = token.find('(');
+  if (open == 0 || open == std::string::npos || token.back() != ')') {
+    throw std::runtime_error("Line " + std::to_string(line) + ": invalid memory operand syntax '" + token + "', expected imm(RS)");
   }
-
-  const auto it = symbols.find(token);
-  if (it == symbols.end()) {
-    error(line, "undefined label '" + token + "'");
-  }
-
-  const uint32_t targetAddr = it->second;
-  const int32_t offset = static_cast<int32_t>(targetAddr) - static_cast<int32_t>(currentPC + 1);
-  if (offset < -33554432 || offset > 33554431) {
-    error(line, "computed jump offset out of 26-bit range for label '" + token + "'");
-  }
-  return offset;
-}
-
-std::pair<uint8_t, int32_t> parseMemOperand(
-    const std::string& token, int line, const std::unordered_map<std::string, uint32_t>& symbols) {
-  const size_t openParen = token.find('(');
-  const size_t closeParen = token.find(')');
-  if (openParen == std::string::npos || closeParen != token.size() - 1 || openParen >= closeParen) {
-    error(line, "malformed memory operand '" + token + "'; expected 'imm(RS)'");
-  }
-
-  const std::string immStr = trim(token.substr(0, openParen));
-  const std::string regStr = trim(token.substr(openParen + 1, closeParen - openParen - 1));
-
-  const uint8_t rs = parseRegister(regStr, line);
-  const int32_t imm = immStr.empty() ? 0 : parseImmediate(immStr, line, symbols);
+  const uint8_t rs = parseRegister(token.substr(open + 1, token.size() - open - 2), line);
+  const int32_t imm = parseImmediate(token.substr(0, open), line);
   return {rs, imm};
 }
 
-std::vector<std::string> splitOperands(const std::string& operandsStr, int line) {
-  std::vector<std::string> operands;
-  std::string current;
-  int parenDepth = 0;
-
-  for (char c : operandsStr) {
-    if (c == '(') {
-      parenDepth++;
-      current += c;
-    } else if (c == ')') {
-      parenDepth--;
-      current += c;
-    } else if (c == ',' && parenDepth == 0) {
-      std::string trimmed = trim(current);
-      if (trimmed.empty()) {
-        error(line, "unexpected empty operand before comma");
-      }
-      operands.push_back(trimmed);
-      current.clear();
-    } else {
-      current += c;
-    }
+int32_t parseBranchTarget(const std::string& token, int line, const SymbolTable& symbols, uint32_t pc) {
+  if (token.empty()) {
+    throw std::runtime_error("Line " + std::to_string(line) + ": missing branch/jump target");
   }
-
-  if (parenDepth != 0) {
-    error(line, "unmatched parentheses in operands: '" + operandsStr + "'");
+  if (token[0] == '+' || token[0] == '-' || std::isdigit(static_cast<unsigned char>(token[0]))) {
+    throw std::runtime_error("Line " + std::to_string(line) + ": manual PC offset not allowed, target must be a label: '" + token + "'");
   }
-
-  const std::string trimmed = trim(current);
-  if (!trimmed.empty()) {
-    operands.push_back(trimmed);
-  } else if (!operands.empty()) {
-    error(line, "trailing comma with missing operand");
+  const auto it = symbols.find(token);
+  if (it == symbols.end()) {
+    throw std::runtime_error("Line " + std::to_string(line) + ": undefined label '" + token + "'");
   }
-
-  return operands;
+  const int64_t offset = static_cast<int64_t>(it->second) - static_cast<int64_t>(pc + 1);
+  if (offset < -33554432 || offset > 33554431) {
+    throw std::runtime_error("Line " + std::to_string(line) + ": branch target offset out of range: '" + token + "'");
+  }
+  return static_cast<int32_t>(offset);
 }
 
-std::string deriveHexPath(const std::string& path) {
-  const size_t slashPos = path.find_last_of("/\\");
-  const size_t dotPos = path.rfind('.');
-  if (dotPos != std::string::npos && (slashPos == std::string::npos || dotPos > slashPos)) {
-    return path.substr(0, dotPos) + ".hex";
-  }
-  return path + ".hex";
-}
-
-void writeHexFile(const std::string& outputPath, const std::vector<uint32_t>& program) {
-  std::ofstream out(outputPath);
-  if (!out.is_open()) {
-    throw std::runtime_error("failed to create output file: " + outputPath);
-  }
-  for (uint32_t word : program) {
-    out << std::hex << std::setw(8) << std::setfill('0') << word << "\n";
-  }
-}
-
-const InstructionInfo* findInstructionByMnemonic(const std::string& mnemonic) {
-  for (std::size_t i = 0; i < kInstructionCount; ++i) {
+const InstructionInfo* findInstruction(const std::string& mnemonic) {
+  for (size_t i = 0; i < kInstructionCount; ++i) {
     if (mnemonic == kInstructionTable[i].mnemonic) {
       return &kInstructionTable[i];
     }
   }
   return nullptr;
+}
+
+std::vector<std::string> splitOperands(const std::string& str, int line) {
+  std::vector<std::string> ops;
+  if (str.empty()) return ops;
+  std::stringstream ss(str);
+  std::string item;
+  while (std::getline(ss, item, ',')) {
+    const size_t first = item.find_first_not_of(" \t\r\n");
+    if (first == std::string::npos) {
+      throw std::runtime_error("Line " + std::to_string(line) + ": empty operand between commas");
+    }
+    const size_t last = item.find_last_not_of(" \t\r\n");
+    ops.push_back(item.substr(first, last - first + 1));
+  }
+  return ops;
+}
+
+uint32_t encodeInstruction(const std::string& mnemonic, const std::string& operandsStr, int line, const SymbolTable& symbols, uint32_t pc) {
+  for (char c : mnemonic) {
+    if (std::isalpha(static_cast<unsigned char>(c)) && !std::isupper(static_cast<unsigned char>(c))) {
+      throw std::runtime_error("Line " + std::to_string(line) + ": mnemonic must be strictly uppercase: '" + mnemonic + "'");
+    }
+  }
+
+  const InstructionInfo* info = findInstruction(mnemonic);
+  if (!info) {
+    throw std::runtime_error("Line " + std::to_string(line) + ": unknown instruction mnemonic '" + mnemonic + "'");
+  }
+
+  const std::vector<std::string> ops = splitOperands(operandsStr, line);
+
+  switch (info->format) {
+    case InstructionFormat::None: {
+      if (!ops.empty()) {
+        throw std::runtime_error("Line " + std::to_string(line) + ": '" + mnemonic + "' takes no operands");
+      }
+      return encodeOpcode(info->opcode);
+    }
+    case InstructionFormat::R: {
+      if (info->opcode == Opcode::NOT || info->opcode == Opcode::MOV) {
+        if (ops.size() != 2) {
+          throw std::runtime_error("Line " + std::to_string(line) + ": '" + mnemonic + "' takes exactly 2 operands: RD, RS");
+        }
+        return encodeR(info->opcode, parseRegister(ops[0], line), parseRegister(ops[1], line), 0);
+      }
+      if (info->opcode == Opcode::CMP) {
+        if (ops.size() != 2) {
+          throw std::runtime_error("Line " + std::to_string(line) + ": CMP takes exactly 2 operands: RS, RT");
+        }
+        return encodeR(Opcode::CMP, 0, parseRegister(ops[0], line), parseRegister(ops[1], line));
+      }
+      if (ops.size() != 3) {
+        throw std::runtime_error("Line " + std::to_string(line) + ": '" + mnemonic + "' takes exactly 3 operands: RD, RS, RT");
+      }
+      return encodeR(info->opcode, parseRegister(ops[0], line), parseRegister(ops[1], line), parseRegister(ops[2], line));
+    }
+    case InstructionFormat::I: {
+      if (info->opcode == Opcode::ADDI) {
+        if (ops.size() != 3) {
+          throw std::runtime_error("Line " + std::to_string(line) + ": ADDI takes exactly 3 operands: RD, RS, imm");
+        }
+        return encodeI(Opcode::ADDI, parseRegister(ops[0], line), parseRegister(ops[1], line), parseImmediate(ops[2], line));
+      }
+      if (info->opcode == Opcode::LDI) {
+        if (ops.size() != 2) {
+          throw std::runtime_error("Line " + std::to_string(line) + ": LDI takes exactly 2 operands: RD, imm");
+        }
+        return encodeI(Opcode::LDI, parseRegister(ops[0], line), 0, parseImmediate(ops[1], line));
+      }
+      if (info->opcode == Opcode::LW || info->opcode == Opcode::SW) {
+        if (ops.size() != 2) {
+          throw std::runtime_error("Line " + std::to_string(line) + ": '" + mnemonic + "' takes exactly 2 operands: RD, imm(RS)");
+        }
+        const uint8_t rd = parseRegister(ops[0], line);
+        const auto [rs, imm] = parseMemOperand(ops[1], line);
+        return encodeI(info->opcode, rd, rs, imm);
+      }
+      if (info->opcode == Opcode::PUSH || info->opcode == Opcode::POP) {
+        if (ops.size() != 1) {
+          throw std::runtime_error("Line " + std::to_string(line) + ": '" + mnemonic + "' takes exactly 1 operand: RD");
+        }
+        return encodeI(info->opcode, parseRegister(ops[0], line), 0, 0);
+      }
+      if (info->opcode == Opcode::RET) {
+        if (!ops.empty()) {
+          throw std::runtime_error("Line " + std::to_string(line) + ": RET takes no operands");
+        }
+        return encodeI(Opcode::RET, 0, 0, 0);
+      }
+      throw std::runtime_error("Line " + std::to_string(line) + ": unhandled I-type instruction");
+    }
+    case InstructionFormat::J: {
+      if (ops.size() != 1) {
+        throw std::runtime_error("Line " + std::to_string(line) + ": '" + mnemonic + "' takes exactly 1 target operand");
+      }
+      return encodeJ(info->opcode, parseBranchTarget(ops[0], line, symbols, pc));
+    }
+  }
+  throw std::runtime_error("Line " + std::to_string(line) + ": invalid instruction format");
+}
+
+void writeHexFile(const std::string& hexPath, const std::vector<uint32_t>& program) {
+  std::ofstream out(hexPath);
+  if (!out.is_open()) {
+    throw std::runtime_error("could not open output hex file: " + hexPath);
+  }
+  for (uint32_t word : program) {
+    out << std::hex << std::setw(8) << std::setfill('0') << word << "\n";
+  }
 }
 
 }  // namespace
@@ -258,170 +233,64 @@ void assemble(const std::string& path, std::vector<uint32_t>& outProgram) {
     throw std::runtime_error("could not open source file: " + path);
   }
 
-  outProgram.clear();
+  SymbolTable symbols;
+  struct LineItem {
+    int lineNum;
+    std::string text;
+  };
+  std::vector<LineItem> instructions;
+  std::string raw;
+  int lineNum = 0;
 
-  // Pass 1: Label collection and instruction line identification
-  std::unordered_map<std::string, uint32_t> symbols;
-  std::vector<ParsedLine> parsedLines;
-  uint32_t instructionCount = 0;
-  std::string rawLine;
-  int currentLineNum = 0;
+  // Pass 1: Standalone labels & instruction collection
+  while (std::getline(file, raw)) {
+    lineNum++;
+    const std::string line = stripCommentsAndTrim(raw);
+    if (line.empty()) continue;
 
-  while (std::getline(file, rawLine)) {
-    currentLineNum++;
-    std::string clean = stripComments(rawLine);
-    if (clean.empty()) {
-      continue;
-    }
-
-    const size_t colonPos = clean.find(':');
-    if (colonPos != std::string::npos) {
-      const std::string label = trim(clean.substr(0, colonPos));
+    const size_t colon = line.find(':');
+    if (colon != std::string::npos) {
+      if (colon != line.size() - 1) {
+        throw std::runtime_error("Line " + std::to_string(lineNum) + ": inline labels not allowed, label must be on its own line");
+      }
+      const std::string label = line.substr(0, colon);
       if (!isValidIdentifier(label)) {
-        error(currentLineNum, "invalid label identifier '" + label + "'");
+        throw std::runtime_error("Line " + std::to_string(lineNum) + ": invalid label identifier '" + label + "'");
       }
       if (symbols.find(label) != symbols.end()) {
-        error(currentLineNum, "duplicate label definition '" + label + "'");
+        throw std::runtime_error("Line " + std::to_string(lineNum) + ": duplicate label '" + label + "'");
       }
-      symbols[label] = instructionCount;
-
-      const std::string rest = trim(clean.substr(colonPos + 1));
-      if (!rest.empty()) {
-        parsedLines.push_back({currentLineNum, rest});
-        instructionCount++;
-      }
+      symbols[label] = static_cast<uint32_t>(instructions.size());
     } else {
-      parsedLines.push_back({currentLineNum, clean});
-      instructionCount++;
+      instructions.push_back({lineNum, line});
     }
   }
 
-  if (instructionCount > kCodeLimit + 1) {
-    throw std::runtime_error("program size (" + std::to_string(instructionCount) +
-                             " words) exceeds code region limit (" +
-                             std::to_string(kCodeLimit + 1) + " words)");
+  if (instructions.size() > kCodeLimit + 1) {
+    throw std::runtime_error("program size (" + std::to_string(instructions.size()) +
+                             " words) exceeds code region limit (" + std::to_string(kCodeLimit + 1) + " words)");
   }
 
-  // Pass 2: Parsing instructions and encoding words
-  outProgram.reserve(instructionCount);
+  // Pass 2: Encoding
+  outProgram.clear();
+  outProgram.reserve(instructions.size());
 
-  for (size_t i = 0; i < parsedLines.size(); ++i) {
-    const int line = parsedLines[i].lineNumber;
-    const std::string& text = parsedLines[i].instructionText;
-    const uint32_t pc = static_cast<uint32_t>(i);
+  for (size_t pc = 0; pc < instructions.size(); ++pc) {
+    const std::string& text = instructions[pc].text;
+    const int line = instructions[pc].lineNum;
+    const size_t space = text.find_first_of(" \t");
+    const std::string mnemonic = (space == std::string::npos) ? text : text.substr(0, space);
+    const std::string operandsStr = (space == std::string::npos) ? "" : stripCommentsAndTrim(text.substr(space + 1));
 
-    // Split into mnemonic and remainder
-    const size_t firstSpace = text.find_first_of(" \t");
-    const std::string mnemonic = (firstSpace == std::string::npos) ? text : text.substr(0, firstSpace);
-    const std::string operandsStr = (firstSpace == std::string::npos) ? "" : trim(text.substr(firstSpace + 1));
-
-    // Enforce strict uppercase on mnemonic
-    for (char c : mnemonic) {
-      if (std::isalpha(static_cast<unsigned char>(c)) && !std::isupper(static_cast<unsigned char>(c))) {
-        error(line, "mnemonic must be strictly uppercase: '" + mnemonic + "'");
-      }
-    }
-
-    const InstructionInfo* info = findInstructionByMnemonic(mnemonic);
-    if (!info) {
-      error(line, "unknown instruction mnemonic '" + mnemonic + "'");
-    }
-
-
-    const std::vector<std::string> operands = splitOperands(operandsStr, line);
-    uint32_t encodedWord = 0;
-
-    switch (info->format) {
-      case InstructionFormat::None: {
-        if (!operands.empty()) {
-          error(line, "'" + mnemonic + "' takes no operands, found: " + operandsStr);
-        }
-        encodedWord = encodeOpcode(info->opcode);
-        break;
-      }
-
-      case InstructionFormat::R: {
-        if (info->opcode == Opcode::NOT || info->opcode == Opcode::MOV) {
-          if (operands.size() != 2) {
-            error(line, "'" + mnemonic + "' takes exactly 2 operands: RD, RS");
-          }
-          const uint8_t rd = parseRegister(operands[0], line);
-          const uint8_t rs = parseRegister(operands[1], line);
-          encodedWord = encodeR(info->opcode, rd, rs, 0);
-        } else if (info->opcode == Opcode::CMP) {
-          if (operands.size() != 2) {
-            error(line, "CMP takes exactly 2 operands: RS, RT");
-          }
-          const uint8_t rs = parseRegister(operands[0], line);
-          const uint8_t rt = parseRegister(operands[1], line);
-          encodedWord = encodeR(Opcode::CMP, 0, rs, rt);
-        } else {
-          // ADD, SUB, MUL, DIV, AND, OR, XOR, SHL, SHR
-          if (operands.size() != 3) {
-            error(line, "'" + mnemonic + "' takes exactly 3 operands: RD, RS, RT");
-          }
-          const uint8_t rd = parseRegister(operands[0], line);
-          const uint8_t rs = parseRegister(operands[1], line);
-          const uint8_t rt = parseRegister(operands[2], line);
-          encodedWord = encodeR(info->opcode, rd, rs, rt);
-        }
-        break;
-      }
-
-      case InstructionFormat::I: {
-        if (info->opcode == Opcode::ADDI) {
-          if (operands.size() != 3) {
-            error(line, "ADDI takes exactly 3 operands: RD, RS, imm");
-          }
-          const uint8_t rd = parseRegister(operands[0], line);
-          const uint8_t rs = parseRegister(operands[1], line);
-          const int32_t imm = parseImmediate(operands[2], line, symbols);
-          encodedWord = encodeI(Opcode::ADDI, rd, rs, imm);
-        } else if (info->opcode == Opcode::LDI) {
-          if (operands.size() != 2) {
-            error(line, "LDI takes exactly 2 operands: RD, imm");
-          }
-          const uint8_t rd = parseRegister(operands[0], line);
-          const int32_t imm = parseImmediate(operands[1], line, symbols);
-          encodedWord = encodeI(Opcode::LDI, rd, 0, imm);
-        } else if (info->opcode == Opcode::LW || info->opcode == Opcode::SW) {
-          if (operands.size() != 2) {
-            error(line, "'" + mnemonic + "' takes exactly 2 operands: RD, imm(RS)");
-          }
-          const uint8_t rd = parseRegister(operands[0], line);
-          const auto [rs, imm] = parseMemOperand(operands[1], line, symbols);
-          encodedWord = encodeI(info->opcode, rd, rs, imm);
-        } else if (info->opcode == Opcode::PUSH || info->opcode == Opcode::POP) {
-          if (operands.size() != 1) {
-            error(line, "'" + mnemonic + "' takes exactly 1 operand: RD");
-          }
-          const uint8_t rd = parseRegister(operands[0], line);
-          encodedWord = encodeI(info->opcode, rd, 0, 0);
-        } else if (info->opcode == Opcode::RET) {
-          if (!operands.empty()) {
-            error(line, "RET takes no operands");
-          }
-          encodedWord = encodeI(Opcode::RET, 0, 0, 0);
-        }
-        break;
-      }
-
-      case InstructionFormat::J: {
-        // JMP, BEQ, BNE, BLT, BGE, CALL
-        if (operands.size() != 1) {
-          error(line, "'" + mnemonic + "' takes exactly 1 target operand (offset or label)");
-        }
-        const int32_t offset = parseTarget(operands[0], line, symbols, pc);
-        encodedWord = encodeJ(info->opcode, offset);
-        break;
-      }
-    }
-
-    outProgram.push_back(encodedWord);
+    outProgram.push_back(encodeInstruction(mnemonic, operandsStr, line, symbols, static_cast<uint32_t>(pc)));
   }
 
-  // Write pure machine code to <dir>/<stem>.hex
-  const std::string hexPath = deriveHexPath(path);
+  // Inline hex path derivation
+  const size_t dot = path.rfind('.');
+  const size_t slash = path.rfind('/');
+  const std::string hexPath = (dot != std::string::npos && (slash == std::string::npos || dot > slash))
+                                  ? path.substr(0, dot) + ".hex"
+                                  : path + ".hex";
   writeHexFile(hexPath, outProgram);
 }
 
