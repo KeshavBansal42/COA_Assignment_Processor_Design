@@ -40,9 +40,17 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 add_library(risc201_assembler STATIC assembler/assembler.cpp)
 target_link_libraries(risc201_assembler PUBLIC risc201_isa)
 
+add_executable(risc201_asm assembler/main.cpp)
+set_target_properties(risc201_asm PROPERTIES OUTPUT_NAME risc201-asm)
+target_link_libraries(risc201_asm PRIVATE risc201_assembler)
+
 # Disassembler module
 add_library(risc201_disassembler STATIC disassembler/disassembler.cpp)
 target_link_libraries(risc201_disassembler PUBLIC risc201_isa)
+
+add_executable(risc201_disasm disassembler/main.cpp)
+set_target_properties(risc201_disasm PROPERTIES OUTPUT_NAME risc201-disasm)
+target_link_libraries(risc201_disasm PRIVATE risc201_disassembler)
 
 enable_testing()
 add_subdirectory(tests)
