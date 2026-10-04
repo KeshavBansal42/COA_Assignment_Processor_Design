@@ -16,4 +16,11 @@ class Alu {
   virtual AluResult execute(AluOp op, uint32_t a, uint32_t b) = 0;
 };
 
+class ConcreteAlu : public Alu {
+ public:
+  AluResult execute(AluOp op, uint32_t a, uint32_t b) override;
+ private:
+  Flags compute_flags(uint32_t a, uint32_t b, uint32_t value, bool is_add, bool is_sub, bool is_logical);
+};
+
 }  // namespace risc201

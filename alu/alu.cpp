@@ -2,13 +2,7 @@
 
 namespace risc201 {
 
-// We create a concrete class that inherits from the abstract Alu class.
-// We put it in an anonymous namespace so it doesn't pollute the global scope.
-namespace {
-
-class ConcreteAlu : public Alu {
-private:
-    Flags compute_flags(uint32_t a, uint32_t b, uint32_t value, bool is_add, bool is_sub, bool is_logical) {
+Flags ConcreteAlu::compute_flags(uint32_t a, uint32_t b, uint32_t value, bool is_add, bool is_sub, bool is_logical) {
         Flags f;
         f.z = (value == 0) ? true : false;
         f.n = ((value >> 31) & 1) != 0;
@@ -26,8 +20,7 @@ private:
         return f;
     }
 
-public:
-    AluResult execute(AluOp op, uint32_t a, uint32_t b) override {
+    AluResult ConcreteAlu::execute(AluOp op, uint32_t a, uint32_t b) {
         AluResult res; // Initializes with value=0, flags=false, exception=NONE
         
         switch (op) {
@@ -83,13 +76,4 @@ public:
         }
         return res;
     }
-};
-
-} // anonymous namespace
-
-// Factory function or global instance so tests can access the concrete implementation
-Alu* createAlu() {
-    return new ConcreteAlu();
-}
-
 } // namespace risc201
