@@ -29,7 +29,7 @@ uint32_t Alu::cla_add(uint32_t a, uint32_t b, uint32_t c_in, bool& cout, bool& o
     return sum;
 }
 
-uint32_t Alu::booth_mul(uint32_t a, uint32_t b) {
+uint32_t Alu::booth_mul(uint32_t a, uint32_t b, bool& overflow) {
     uint32_t M = a;
     uint32_t Q = b;
     uint32_t A = 0;
@@ -51,6 +51,12 @@ uint32_t Alu::booth_mul(uint32_t a, uint32_t b) {
         Q = (Q >> 1) | (A_lsb << 31);
         A = (A >> 1) | A_msb;
     }
+
+    // Overflow check: in 64-bit product [A:Q], A must be sign extension of Q
+    uint32_t q_sign = (Q >> 31) & 1;
+    uint32_t expected_A = q_sign ? 0xFFFFFFFFu : 0u;
+    overflow = (A != expected_A);
+
     return Q; 
 }
 
@@ -59,7 +65,8 @@ uint32_t Alu::unsigned_div(uint32_t dividend, uint32_t divisor, ExceptionCode& e
         exc = ExceptionCode::DIV_BY_ZERO;
         return 0;
     }
-    uint32_t A = 0;
+    // 33-bit / 64-bit accumulator A to hold bits shifted from Q without losing the MSB
+    uint64_t A = 0;
     uint32_t M = divisor;
     uint32_t Q = dividend;
 
@@ -68,14 +75,11 @@ uint32_t Alu::unsigned_div(uint32_t dividend, uint32_t divisor, ExceptionCode& e
         A = (A << 1) | Q_msb;
         Q = (Q << 1);
 
-        bool dummy_c, dummy_v;
-        uint32_t A_minus_M = cla_add(A, ~M, 1, dummy_c, dummy_v);
-
-        if ((A_minus_M & 0x80000000) != 0) {
-            Q = Q & ~1; 
+        if (A >= M) {
+            A -= M;
+            Q |= 1;
         } else {
-            Q = Q | 1;  
-            A = A_minus_M; 
+            Q &= ~1u;
         }
     }
     return Q; 
@@ -100,9 +104,9 @@ AluResult Alu::execute(AluOp op, uint32_t a, uint32_t b) {
             res.flags.v = overflow;
             break;
         case AluOp::MUL:
-            res.value = booth_mul(a, b);
+            res.value = booth_mul(a, b, overflow);
             res.flags.c = false; 
-            res.flags.v = false;
+            res.flags.v = overflow;
             break;
         case AluOp::DIV:
             res.value = unsigned_div(a, b, res.exception);
