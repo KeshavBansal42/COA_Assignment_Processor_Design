@@ -82,7 +82,7 @@ enum class InstructionFormat : uint8_t {
 
 struct InstructionInfo {
   Opcode opcode;
-  const char* mnemonic;
+  const char *mnemonic;
   InstructionFormat format;
 };
 
@@ -120,7 +120,7 @@ inline constexpr std::size_t kInstructionCount =
     sizeof(kInstructionTable) / sizeof(kInstructionTable[0]);
 
 // Returns nullptr if the opcode is not in the table.
-inline constexpr const InstructionInfo* lookupInstruction(Opcode opcode) {
+inline constexpr const InstructionInfo *lookupInstruction(Opcode opcode) {
   for (std::size_t i = 0; i < kInstructionCount; ++i) {
     if (kInstructionTable[i].opcode == opcode) {
       return &kInstructionTable[i];
@@ -134,17 +134,18 @@ inline constexpr bool isDefinedOpcode(Opcode opcode) {
   return lookupInstruction(opcode) != nullptr;
 }
 
-inline constexpr const char* mnemonicOf(Opcode opcode) {
-  const InstructionInfo* info = lookupInstruction(opcode);
+inline constexpr const char *mnemonicOf(Opcode opcode) {
+  const InstructionInfo *info = lookupInstruction(opcode);
   return info != nullptr ? info->mnemonic : "???";
 }
 
 inline constexpr InstructionFormat formatOf(Opcode opcode) {
-  const InstructionInfo* info = lookupInstruction(opcode);
+  const InstructionInfo *info = lookupInstruction(opcode);
   return info != nullptr ? info->format : InstructionFormat::None;
 }
 
 // Z, N, C, V.
+// ALU status flags
 struct Flags {
   bool z = false;
   bool n = false;
@@ -152,14 +153,15 @@ struct Flags {
   bool v = false;
 };
 
-inline constexpr bool operator==(const Flags& lhs, const Flags& rhs) {
+inline constexpr bool operator==(const Flags &lhs, const Flags &rhs) {
   return lhs.z == rhs.z && lhs.n == rhs.n && lhs.c == rhs.c && lhs.v == rhs.v;
 }
 
-inline constexpr bool operator!=(const Flags& lhs, const Flags& rhs) {
+inline constexpr bool operator!=(const Flags &lhs, const Flags &rhs) {
   return !(lhs == rhs);
 }
 
+// List of things that can crash the program.
 enum class ExceptionCode : uint8_t {
   NONE = 0,
   STACK_OVERFLOW = 1,
@@ -170,22 +172,23 @@ enum class ExceptionCode : uint8_t {
   PC_OUT_OF_RANGE = 6,
 };
 
+// Convert exception code to string.
 inline std::string toString(ExceptionCode code) {
   switch (code) {
-    case ExceptionCode::NONE:
-      return "NONE";
-    case ExceptionCode::STACK_OVERFLOW:
-      return "STACK_OVERFLOW";
-    case ExceptionCode::STACK_UNDERFLOW:
-      return "STACK_UNDERFLOW";
-    case ExceptionCode::INVALID_MEM_ACCESS:
-      return "INVALID_MEM_ACCESS";
-    case ExceptionCode::DIV_BY_ZERO:
-      return "DIV_BY_ZERO";
-    case ExceptionCode::ILLEGAL_INSTRUCTION:
-      return "ILLEGAL_INSTRUCTION";
-    case ExceptionCode::PC_OUT_OF_RANGE:
-      return "PC_OUT_OF_RANGE";
+  case ExceptionCode::NONE:
+    return "NONE";
+  case ExceptionCode::STACK_OVERFLOW:
+    return "STACK_OVERFLOW";
+  case ExceptionCode::STACK_UNDERFLOW:
+    return "STACK_UNDERFLOW";
+  case ExceptionCode::INVALID_MEM_ACCESS:
+    return "INVALID_MEM_ACCESS";
+  case ExceptionCode::DIV_BY_ZERO:
+    return "DIV_BY_ZERO";
+  case ExceptionCode::ILLEGAL_INSTRUCTION:
+    return "ILLEGAL_INSTRUCTION";
+  case ExceptionCode::PC_OUT_OF_RANGE:
+    return "PC_OUT_OF_RANGE";
   }
   return "UNKNOWN";
 }
@@ -251,14 +254,16 @@ inline constexpr uint32_t encodeOpcode(Opcode opcode) {
   return static_cast<uint32_t>(opcode) << kOpcodeShift;
 }
 
-inline constexpr uint32_t encodeR(Opcode opcode, uint8_t rd, uint8_t rs, uint8_t rt) {
+inline constexpr uint32_t encodeR(Opcode opcode, uint8_t rd, uint8_t rs,
+                                  uint8_t rt) {
   return encodeOpcode(opcode) |
          ((static_cast<uint32_t>(rd) & kRegisterMask) << kRdShift) |
          ((static_cast<uint32_t>(rs) & kRegisterMask) << kRsShift) |
          ((static_cast<uint32_t>(rt) & kRegisterMask) << kRtShift);
 }
 
-inline constexpr uint32_t encodeI(Opcode opcode, uint8_t rd, uint8_t rs, int32_t imm) {
+inline constexpr uint32_t encodeI(Opcode opcode, uint8_t rd, uint8_t rs,
+                                  int32_t imm) {
   return encodeOpcode(opcode) |
          ((static_cast<uint32_t>(rd) & kRegisterMask) << kRdShift) |
          ((static_cast<uint32_t>(rs) & kRegisterMask) << kRsShift) |
@@ -293,4 +298,4 @@ inline constexpr int32_t decodeOffset(uint32_t word) {
   return signExtend(word & kOffsetMask, kOffsetBits);
 }
 
-}  // namespace risc201
+} // namespace risc201

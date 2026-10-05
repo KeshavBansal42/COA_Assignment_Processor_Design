@@ -25,6 +25,8 @@ class Cli {
   void commandRegs() const;
   void commandMem(uint32_t start, uint32_t count) const;
 
+  void commandStack(int maxDepth) const; // added after memory_safety
+
   void commandBreak(const std::string& target);
   void commandDelete(const std::string& target);
   void commandBreaks() const;

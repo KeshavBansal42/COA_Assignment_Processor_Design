@@ -5,6 +5,12 @@
 
 #include "isa_spec/isa201.h"
 #include "simulator_core/cpu.hpp"
+#include "memory_safety/memory_safety.hpp"
+
+#include <fstream>
+#include <iomanip>
+#include <iostream>
+#include "tests/test_programs.hpp"
 
 using namespace risc201;
 
@@ -115,6 +121,98 @@ static void testResetClearsTheException() {
   assert(cpu.pc() == kCodeBase);
 }
 
+void testExceptionTracker() {
+  MemorySafetyImpl safety;
+  ExceptionTracker tracker;
+  
+  uint32_t dummyPc = 0x000;
+  uint32_t dummySp = 0x1000;
+  uint64_t cycle = 0;
+  
+  // dummy loop running for 10 cycles
+  for (int i = 0; i < 10; i++) {
+    cycle++;
+    
+    // simulate instruction fetch
+    ExceptionCode pcCheck = safety.checkPC(dummyPc);
+    if (pcCheck != ExceptionCode::NONE) {
+      tracker.logException(pcCheck, dummyPc, cycle);
+      break;
+    }
+    
+    // simulate a push instruction at cycle 5
+    if (cycle == 5) {
+      ExceptionCode stackCheck = safety.checkStack(dummySp, true);
+      if (stackCheck != ExceptionCode::NONE) {
+        tracker.logException(stackCheck, dummySp, cycle);
+        break;
+      }
+      dummySp--; // update sp after push
+    }
+    
+    // simulate bad memory write at cycle 8
+    if (cycle == 8) {
+      uint32_t badAddr = 0x0100; // writing to code region is bad
+      ExceptionCode memCheck = safety.checkMem(badAddr, true);
+      if (memCheck != ExceptionCode::NONE) {
+        tracker.logException(memCheck, badAddr, cycle);
+        break;
+      }
+    }
+    
+    dummyPc++;
+  }
+  
+  // check if tracker caught the bad memory write exactly at cycle 8
+  assert(tracker.getLastError() == ExceptionCode::INVALID_MEM_ACCESS);
+  assert(tracker.getFaultAddress() == 0x0100);
+  assert(tracker.getCycle() == 8);
+}
+
+void testExceptionToString() {
+  // test that exception messages match our specs
+  assert(exceptionToString(ExceptionCode::NONE) == "No exception");
+  assert(exceptionToString(ExceptionCode::STACK_OVERFLOW) == "Stack overflow (SP went below 0xC00)");
+  assert(exceptionToString(ExceptionCode::STACK_UNDERFLOW) == "Stack underflow (SP went above 0x1000)");
+  assert(exceptionToString(ExceptionCode::INVALID_MEM_ACCESS) == "Invalid memory access (out of bounds or code overwrite)");
+  assert(exceptionToString(ExceptionCode::DIV_BY_ZERO) == "Division by zero");
+  assert(exceptionToString(ExceptionCode::ILLEGAL_INSTRUCTION) == "Illegal instruction encountered");
+  assert(exceptionToString(ExceptionCode::PC_OUT_OF_RANGE) == "Program counter went out of code region");
+}
+
+void testTrackerFaultAddress() {
+  ExceptionTracker tracker;
+  
+  // manually log an error and check if address is saved correctly
+  tracker.logException(ExceptionCode::DIV_BY_ZERO, 0x0500, 42);
+  assert(tracker.getLastError() == ExceptionCode::DIV_BY_ZERO);
+  assert(tracker.getFaultAddress() == 0x0500);
+  assert(tracker.getCycle() == 42);
+  
+  // check if reset clears everything
+  tracker.reset();
+  assert(tracker.getLastError() == ExceptionCode::NONE);
+  assert(tracker.getFaultAddress() == 0);
+  assert(tracker.getCycle() == 0);
+}
+
+void exportHexPrograms() {
+  // helper lambda to save vector to a text file
+  auto saveHex = [](const std::string& name, const std::vector<uint32_t>& prog) {
+    std::ofstream file(name);
+    for (uint32_t word : prog) {
+      file << std::hex << std::setw(8) << std::setfill('0') << word << "\n";
+    }
+  };
+  
+  // write our programs to disk
+  saveHex("loop.hex", kLoopProgram);
+  saveHex("recursion.hex", kRecursionProgram);
+  saveHex("stack_fault.hex", kStackOverflowProgram);
+  
+  std::cout << "exported hex programs for demo!\n";
+}
+
 int main() {
   testIllegalInstruction();
   testPcOutOfRange();
@@ -124,5 +222,11 @@ int main() {
   testWriteIntoCodeRegion();
   testDivideByZero();
   testResetClearsTheException();
+
+  testExceptionTracker();
+  testExceptionToString();
+  testTrackerFaultAddress();
+
+  exportHexPrograms();
   return 0;
 }

@@ -109,5 +109,6 @@ int main() {
   testMissingFile();
   testUnknownCommand();
   testQuitEndsTheSession();
+  
   return 0;
 }
