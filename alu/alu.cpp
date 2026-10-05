@@ -2,94 +2,147 @@
 
 namespace risc201 {
 
-// We create a concrete class that inherits from the abstract Alu class.
-// We put it in an anonymous namespace so it doesn't pollute the global scope.
-namespace {
+uint32_t Alu::cla_add(uint32_t a, uint32_t b, uint32_t c_in, bool& cout, bool& overflow) {
+    uint32_t p = a ^ b; // Propagate
+    uint32_t g = a & b; // Generate
+    uint32_t c = c_in;
+    uint32_t sum = 0;
+    bool c_prev = c_in;
 
-class ConcreteAlu : public Alu {
-private:
-    Flags compute_flags(uint32_t a, uint32_t b, uint32_t value, bool is_add, bool is_sub, bool is_logical) {
-        Flags f;
-        f.z = (value == 0) ? true : false;
-        f.n = ((value >> 31) & 1) != 0;
+    for (int i = 0; i < 32; i++) {
+        uint32_t pi = (p >> i) & 1;
+        uint32_t gi = (g >> i) & 1;
+        uint32_t ci = (c >> i) & 1;
 
-        if (is_add) {
-            f.c = (value < a) ? true : false;
-            f.v = (((~(a ^ b) & (a ^ value)) >> 31) & 1) != 0;
-        } else if (is_sub) {
-            f.c = (a < b) ? true : false;
-            f.v = ((((a ^ b) & (a ^ value)) >> 31) & 1) != 0;
-        } else {
-            f.c = false;
-            f.v = false;
-        }
-        return f;
-    }
+        sum |= (pi ^ ci) << i;
 
-public:
-    AluResult execute(AluOp op, uint32_t a, uint32_t b) override {
-        AluResult res; // Initializes with value=0, flags=false, exception=NONE
+        uint32_t next_c = gi | (pi & ci);
+        c_prev = ci; 
         
-        switch (op) {
-            case AluOp::ADD:
-                res.value = a + b;
-                res.flags = compute_flags(a, b, res.value, true, false, false);
-                break;
-            case AluOp::SUB:
-            case AluOp::CMP:
-                res.value = a - b;
-                res.flags = compute_flags(a, b, res.value, false, true, false);
-                break;
-            case AluOp::MUL:
-                res.value = a * b;
-                res.flags = compute_flags(a, b, res.value, false, false, false);
-                break;
-            case AluOp::DIV:
-                if (b == 0) {
-                    res.exception = ExceptionCode::DIV_BY_ZERO;
-                } else {
-                    res.value = a / b;
-                    res.flags = compute_flags(a, b, res.value, false, false, false);
-                }
-                break;
-            case AluOp::AND:
-                res.value = a & b;
-                res.flags = compute_flags(a, b, res.value, false, false, true);
-                break;
-            case AluOp::OR:
-                res.value = a | b;
-                res.flags = compute_flags(a, b, res.value, false, false, true);
-                break;
-            case AluOp::XOR:
-                res.value = a ^ b;
-                res.flags = compute_flags(a, b, res.value, false, false, true);
-                break;
-            case AluOp::NOT:
-                res.value = ~a;
-                res.flags = compute_flags(a, 0, res.value, false, false, true);
-                break;
-            case AluOp::SHL:
-                res.value = a << (b & 31);
-                res.flags = compute_flags(a, b, res.value, false, false, true);
-                break;
-            case AluOp::SHR:
-                res.value = a >> (b & 31);
-                res.flags = compute_flags(a, b, res.value, false, false, true);
-                break;
-            case AluOp::MOV:
-                res.value = a;
-                res.flags = compute_flags(a, 0, res.value, false, false, true);
-                break;
+        if (i < 31) {
+            c |= (next_c << (i + 1));
+        } else {
+            cout = next_c;
         }
-        return res;
     }
-};
+    overflow = cout ^ c_prev;
+    return sum;
+}
 
-} // anonymous namespace
+uint32_t Alu::booth_mul(uint32_t a, uint32_t b) {
+    uint32_t M = a;
+    uint32_t Q = b;
+    uint32_t A = 0;
+    uint32_t Q_minus_1 = 0;
 
-// Factory function or global instance so tests can access the concrete implementation
-Alu* createAlu() {
-    return new ConcreteAlu();
+    for (int i = 0; i < 32; i++) {
+        uint32_t Q_0 = Q & 1;
+        bool dummy_c, dummy_v; 
+        
+        if (Q_0 == 1 && Q_minus_1 == 0) {
+            A = cla_add(A, ~M, 1, dummy_c, dummy_v); 
+        } else if (Q_0 == 0 && Q_minus_1 == 1) {
+            A = cla_add(A, M, 0, dummy_c, dummy_v);  
+        }
+
+        Q_minus_1 = Q & 1;
+        uint32_t A_lsb = A & 1;
+        uint32_t A_msb = A & 0x80000000; 
+        Q = (Q >> 1) | (A_lsb << 31);
+        A = (A >> 1) | A_msb;
+    }
+    return Q; 
+}
+
+uint32_t Alu::unsigned_div(uint32_t dividend, uint32_t divisor, ExceptionCode& exc) {
+    if (divisor == 0) {
+        exc = ExceptionCode::DIV_BY_ZERO;
+        return 0;
+    }
+    uint32_t A = 0;
+    uint32_t M = divisor;
+    uint32_t Q = dividend;
+
+    for (int i = 0; i < 32; i++) {
+        uint32_t Q_msb = (Q >> 31) & 1;
+        A = (A << 1) | Q_msb;
+        Q = (Q << 1);
+
+        bool dummy_c, dummy_v;
+        uint32_t A_minus_M = cla_add(A, ~M, 1, dummy_c, dummy_v);
+
+        if ((A_minus_M & 0x80000000) != 0) {
+            Q = Q & ~1; 
+        } else {
+            Q = Q | 1;  
+            A = A_minus_M; 
+        }
+    }
+    return Q; 
+}
+
+AluResult Alu::execute(AluOp op, uint32_t a, uint32_t b) {
+    AluResult res;
+    res.exception = ExceptionCode::NONE;
+    bool cout = false;
+    bool overflow = false;
+
+    switch (op) {
+        case AluOp::ADD:
+            res.value = cla_add(a, b, 0, cout, overflow);
+            res.flags.c = cout;
+            res.flags.v = overflow;
+            break;
+        case AluOp::SUB:
+        case AluOp::CMP:
+            res.value = cla_add(a, ~b, 1, cout, overflow); 
+            res.flags.c = cout;
+            res.flags.v = overflow;
+            break;
+        case AluOp::MUL:
+            res.value = booth_mul(a, b);
+            res.flags.c = false; 
+            res.flags.v = false;
+            break;
+        case AluOp::DIV:
+            res.value = unsigned_div(a, b, res.exception);
+            res.flags.c = false;
+            res.flags.v = false;
+            break;
+        case AluOp::AND:
+            res.value = a & b;
+            res.flags.c = false; res.flags.v = false;
+            break;
+        case AluOp::OR:
+            res.value = a | b;
+            res.flags.c = false; res.flags.v = false;
+            break;
+        case AluOp::XOR:
+            res.value = a ^ b;
+            res.flags.c = false; res.flags.v = false;
+            break;
+        case AluOp::NOT:
+            res.value = ~a;
+            res.flags.c = false; res.flags.v = false;
+            break;
+        case AluOp::SHL:
+            res.value = a << (b & 31);
+            res.flags.c = false; res.flags.v = false;
+            break;
+        case AluOp::SHR:
+            res.value = a >> (b & 31);
+            res.flags.c = false; res.flags.v = false;
+            break;
+        case AluOp::MOV:
+            res.value = a;
+            res.flags.c = false; res.flags.v = false;
+            break;
+    }
+
+    res.flags.z = (res.value == 0);
+    res.flags.n = ((res.value >> 31) & 1) != 0;
+    
+    return res;
 }
 
 } // namespace risc201

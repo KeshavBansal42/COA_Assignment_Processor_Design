@@ -1,12 +1,6 @@
 #include "alu/alu.hpp"
 #include <cassert>
 #include <iostream>
-#include <memory> // For std::unique_ptr
-
-// Forward declaration of the factory function we put in alu.cpp
-namespace risc201 {
-    Alu* createAlu();
-}
 
 void test_addition(risc201::Alu& alu) {
     risc201::AluResult res = alu.execute(risc201::AluOp::ADD, 0xFFFFFFFF, 1);
@@ -31,13 +25,12 @@ void test_bitwise(risc201::Alu& alu) {
 }
 
 int main() {
-    // Because Alu is an abstract class, we use the factory function to get a concrete instance
-    std::unique_ptr<risc201::Alu> alu(risc201::createAlu());
+    risc201::Alu alu; // Standard direct instantiation
     
     std::cout << "Running ALU tests...\n";
-    test_addition(*alu);
-    test_division_by_zero(*alu);
-    test_bitwise(*alu);
+    test_addition(alu);
+    test_division_by_zero(alu);
+    test_bitwise(alu);
     
     std::cout << "All tests passed successfully!\n";
     return 0;
