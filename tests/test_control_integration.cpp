@@ -1,12 +1,12 @@
 #include <cassert>
 #include <iostream>
 #include "control_unit/control_unit.hpp"
-#include "simulator_core/simple_safety.hpp"
+#include "memory_safety/memory_safety.hpp"
 
 using namespace risc201;
 
 int main() {
-  SimpleSafety safety;
+  MemorySafetyImpl safety;
   MicroprogrammedControl control;
   
   // mock instruction: LW r1, 0x1000(r2) 
