@@ -73,6 +73,7 @@ enum class Opcode : uint8_t {
   CALL = 0x25,
 };
 
+// Register, Immediate, Jump.
 enum class InstructionFormat : uint8_t {
   None,
   R,
@@ -144,7 +145,7 @@ inline constexpr InstructionFormat formatOf(Opcode opcode) {
   return info != nullptr ? info->format : InstructionFormat::None;
 }
 
-// Z, N, C, V.
+// Zero, Negative, Carry, oVerflow.
 // ALU status flags
 struct Flags {
   bool z = false;
