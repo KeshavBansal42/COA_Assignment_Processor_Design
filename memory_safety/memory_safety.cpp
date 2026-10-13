@@ -6,7 +6,7 @@
 namespace risc201 {
 
 // check if mem access is valid
-ExceptionCode MemorySafetyImpl::checkMem(uint32_t addr, bool isWrite) {
+ExceptionCode MemorySafety::checkMem(uint32_t addr, bool isWrite) {
   // block if address more than 0x0FFF
   if (addr > 0x0FFF) {
     return ExceptionCode::INVALID_MEM_ACCESS;
@@ -21,7 +21,7 @@ ExceptionCode MemorySafetyImpl::checkMem(uint32_t addr, bool isWrite) {
 }
 
 // check stack boundries
-ExceptionCode MemorySafetyImpl::checkStack(uint32_t sp, bool isPush) {
+ExceptionCode MemorySafety::checkStack(uint32_t sp, bool isPush) {
   if (isPush) {
     // push decrease sp so check if it cross 0x0C00
     if ((sp - 1) < 0x0C00) {
@@ -73,7 +73,7 @@ void ExceptionTracker::reset() {
 }
 
 // check if pc is inside code bounds
-ExceptionCode MemorySafetyImpl::checkPC(uint32_t pc) {
+ExceptionCode MemorySafety::checkPC(uint32_t pc) {
   // pc cant go above code limit 0x07FF
   if (pc > 0x07FF) {
     return ExceptionCode::PC_OUT_OF_RANGE;

@@ -13,7 +13,7 @@ static inline uint8_t extractOpcode(uint32_t instr) {
 } // namespace
 
 // decode by reading from the ROM instead of a switch block!
-ControlSignals MicroprogrammedControl::decode(uint32_t instr) {
+ControlSignals ControlUnit::decode(uint32_t instr) {
   ControlSignals signals;
   
   // extract opcode to use as the ROM memory address
@@ -51,7 +51,7 @@ ControlSignals MicroprogrammedControl::decode(uint32_t instr) {
   return signals;
 }
 
-uint32_t MicroprogrammedControl::getMicroPC() const {
+uint32_t ControlUnit::getMicroPC() const {
   return microPc_;
 }
 

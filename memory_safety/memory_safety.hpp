@@ -5,28 +5,21 @@
 
 namespace risc201 {
 
-// safety class for all mem checks
+// safety class for all mem checks directly without virtuals
 class MemorySafety {
  public:
-  virtual ~MemorySafety() = default;
-
   // check stack bounds for push pop
-  virtual ExceptionCode checkStack(uint32_t sp, bool isPush) = 0;
+  ExceptionCode checkStack(uint32_t sp, bool isPush);
 
   // checks mem load store access
-  virtual ExceptionCode checkMem(uint32_t addr, bool isWrite) = 0;
+  ExceptionCode checkMem(uint32_t addr, bool isWrite);
 
   // verify if pc inside code region
-  virtual ExceptionCode checkPC(uint32_t pc) = 0;
+  ExceptionCode checkPC(uint32_t pc);
 };
 
-// real implementation for simulator
-class MemorySafetyImpl : public MemorySafety {
- public:
-  ExceptionCode checkStack(uint32_t sp, bool isPush) override;
-  ExceptionCode checkMem(uint32_t addr, bool isWrite) override;
-  ExceptionCode checkPC(uint32_t pc) override;
-};
+// alias so keshav cpu and tests dont break
+using MemorySafetyImpl = MemorySafety;
 
 std::string exceptionToString(ExceptionCode code);
 

@@ -40,24 +40,18 @@ DecodedInstruction decodeInstruction(uint32_t instr);
 
 class ControlUnit {
  public:
-  virtual ~ControlUnit() = default;
-
   // Turns one instruction word into the signals the pipeline needs.
-  virtual ControlSignals decode(uint32_t instr) = 0;
+  ControlSignals decode(uint32_t instr);
 
-  // Which microinstruction the current instruction is on, 0 while decode is hardwired.
-  virtual uint32_t getMicroPC() const = 0;
-};
-
-// the real deal: horizontal microcoded control unit!
-class MicroprogrammedControl : public ControlUnit {
- public:
-  ControlSignals decode(uint32_t instr) override;
-  uint32_t getMicroPC() const override;
+  // Which microinstruction the current instruction is on
+  uint32_t getMicroPC() const;
 
  private:
   // keeps track of what rom address we are on
   uint32_t microPc_ = 0; 
 };
+
+// alias so keshav cpu and tests dont break
+using MicroprogrammedControl = ControlUnit;
 
 }  // namespace risc201
