@@ -84,18 +84,24 @@ void testDebuggerSessionOnTheLoopProgram() {
   std::ostringstream out;
   Cli cli(cpu, out);
 
-  assert(cli.execute("load " + programPath("loop.hex")));
-  assert(cli.execute("break 3"));
+  // The calls have to stay out of assert(): a release build compiles assert()
+  // away, which would drop the calls with it and spin this loop forever.
+  const bool loaded = cli.execute("load " + programPath("loop.hex"));
+  assert(loaded);
+
+  const bool broke = cli.execute("break 3");
+  assert(broke);
 
   // The breakpoint sits in the loop, so it stops once per pass.
   int stops = 0;
-  while (!cpu.halted()) {
-    assert(cli.execute("run"));
+  while (!cpu.halted() && stops < 100) {
+    const bool ran = cli.execute("run");
+    assert(ran);
     ++stops;
-    assert(stops < 100);
   }
 
   assert(stops > 1);
+  assert(stops < 100);
   assert(cpu.reg(3) == 55);
   assert(out.str().find("breakpoint") != std::string::npos);
 }
