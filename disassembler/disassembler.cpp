@@ -55,7 +55,8 @@ void writeAsmFile(const std::string& path, const std::string& content) {
 }
 
 std::string formatInstruction(
-    uint32_t word, uint32_t pc = 0, const std::unordered_set<uint32_t>& labelTargets = {}) {
+    uint32_t word, uint32_t pc = 0, const std::unordered_set<uint32_t>& labelTargets = {},
+    bool plain = false) {
   const Opcode op = decodeOpcode(word);
   if (!isDefinedOpcode(op)) {
     std::ostringstream oss;
@@ -105,6 +106,10 @@ std::string formatInstruction(
 
     case InstructionFormat::J: {
       const int32_t offset = decodeOffset(word);
+      if (plain) {
+        // A single word on its own has no labels, show the raw offset.
+        return mnem + " " + std::to_string(offset);
+      }
       const int64_t target = static_cast<int64_t>(pc) + 1 + offset;
       if (target >= 0 && labelTargets.count(static_cast<uint32_t>(target)) != 0) {
         return mnem + " L_" + std::to_string(target);
@@ -146,6 +151,17 @@ std::string disassembleProgram(const std::vector<uint32_t>& program) {
 }
 
 }  // namespace
+
+std::string disassemble(uint32_t word) {
+  const Opcode opcode = decodeOpcode(word);
+  if (!isDefinedOpcode(opcode)) {
+    std::ostringstream oss;
+    oss << "illegal 0x" << std::hex << std::uppercase << std::setw(2) << std::setfill('0')
+        << static_cast<unsigned>(static_cast<uint8_t>(opcode));
+    return oss.str();
+  }
+  return formatInstruction(word, 0, {}, true);
+}
 
 void disassemble(const std::string& hex_path) {
   const std::vector<uint32_t> program = readHexFile(hex_path);
