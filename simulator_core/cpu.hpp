@@ -9,8 +9,9 @@
 
 #include "control_unit/control_unit.hpp"
 #include "alu/alu.hpp"
+#include "simulator_core/cycle_pipeline.hpp"
 #include "simulator_core/pipeline.hpp"
-#include "memory_safety/memory_safety.hpp" //added after memory_safety part
+#include "memory_safety/memory_safety.hpp"
 
 namespace risc201 {
 
@@ -66,6 +67,22 @@ public:
   bool wroteMemory() const;
   uint32_t lastWriteAddress() const;
 
+  // Which pipeline runs the program. Sequential is the default.
+  void setPipelineMode(PipelineMode mode);
+  PipelineMode pipelineMode() const;
+
+  // Clock cycles and retired instructions since the last reset.
+  uint64_t cycles() const;
+  uint64_t instructions() const;
+
+  // Hazard counters, zero in sequential mode.
+  uint64_t stalls() const;
+  uint64_t flushes() const;
+  uint64_t forwards() const;
+
+  // The overlapped pipeline in use, for the visualizer and the evaluation run.
+  const CyclePipeline& cyclePipeline() const;
+
   // The entire state and memory of our CPU.
 private:
   std::array<uint32_t, kRegisterCount> registers_{};
@@ -80,9 +97,15 @@ private:
 
   MicroprogrammedControl control_{};
   ConcreteAlu alu_{};
-  MemorySafetyImpl safety_{}; // changed with keshav's simple safety
+  MemorySafetyImpl safety_{};
 
   Pipeline pipeline_;
+  CyclePipeline cycle4_{*this, alu_, control_, safety_, 4};
+  CyclePipeline cycle6_{*this, alu_, control_, safety_, 6};
+
+  PipelineMode mode_ = PipelineMode::Sequential;
+  uint64_t cycles_ = 0;
+  uint64_t instructions_ = 0;
 };
 
 } // namespace risc201

@@ -23,6 +23,7 @@ add_library(risc201_core STATIC
   alu/alu.cpp
   control_unit/control_unit.cpp
   simulator_core/pipeline.cpp
+  simulator_core/cycle_pipeline.cpp
   simulator_core/debugger.cpp
   simulator_core/cli.cpp)
 target_link_libraries(risc201_core PUBLIC risc201_isa risc201_memory_safety)

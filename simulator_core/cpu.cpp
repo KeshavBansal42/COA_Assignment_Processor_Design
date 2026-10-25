@@ -22,7 +22,18 @@ void Cpu::step() {
     return;
   }
   wroteMemory_ = false;
-  pipeline_.step();
+
+  if (mode_ == PipelineMode::Sequential) {
+    pipeline_.step();
+    ++cycles_;
+    ++instructions_;
+    return;
+  }
+
+  CyclePipeline& pipeline = (mode_ == PipelineMode::FourStage) ? cycle4_ : cycle6_;
+  pipeline.cycle();
+  ++cycles_;
+  instructions_ = pipeline.retired();
 }
 
 void Cpu::run() {
@@ -41,6 +52,10 @@ void Cpu::reset() {
   wroteMemory_ = false;
   lastWriteAddress_ = 0;
   pipeline_.reset();
+  cycle4_.reset();
+  cycle6_.reset();
+  cycles_ = 0;
+  instructions_ = 0;
 }
 
 uint32_t Cpu::reg(uint8_t index) const {
@@ -88,5 +103,35 @@ void Cpu::setException(ExceptionCode value) { exception_ = value; }
 bool Cpu::wroteMemory() const { return wroteMemory_; }
 
 uint32_t Cpu::lastWriteAddress() const { return lastWriteAddress_; }
+
+void Cpu::setPipelineMode(PipelineMode mode) {
+  mode_ = mode;
+  cycle4_.reset();
+  cycle6_.reset();
+  cycles_ = 0;
+  instructions_ = 0;
+}
+
+PipelineMode Cpu::pipelineMode() const { return mode_; }
+
+uint64_t Cpu::cycles() const { return cycles_; }
+
+uint64_t Cpu::instructions() const { return instructions_; }
+
+const CyclePipeline& Cpu::cyclePipeline() const {
+  return mode_ == PipelineMode::FourStage ? cycle4_ : cycle6_;
+}
+
+uint64_t Cpu::stalls() const {
+  return mode_ == PipelineMode::Sequential ? 0 : cyclePipeline().stalls();
+}
+
+uint64_t Cpu::flushes() const {
+  return mode_ == PipelineMode::Sequential ? 0 : cyclePipeline().flushes();
+}
+
+uint64_t Cpu::forwards() const {
+  return mode_ == PipelineMode::Sequential ? 0 : cyclePipeline().forwards();
+}
 
 }  // namespace risc201
