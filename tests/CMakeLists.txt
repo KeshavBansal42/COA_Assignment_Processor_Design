@@ -2,6 +2,22 @@ add_executable(test_isa test_isa.cpp)
 target_link_libraries(test_isa PRIVATE risc201_isa)
 add_test(NAME isa COMMAND test_isa)
 
+add_executable(test_alu test_alu.cpp)
+target_link_libraries(test_alu PRIVATE risc201_core)
+add_test(NAME alu COMMAND test_alu)
+
+add_executable(test_memory_checks test_memory_checks.cpp)
+target_link_libraries(test_memory_checks PRIVATE risc201_memory_safety)
+add_test(NAME memory_checks COMMAND test_memory_checks)
+
+add_executable(test_control_unit test_control_unit.cpp)
+target_link_libraries(test_control_unit PRIVATE risc201_core)
+add_test(NAME control_unit COMMAND test_control_unit)
+
+add_executable(test_control_integration test_control_integration.cpp)
+target_link_libraries(test_control_integration PRIVATE risc201_core)
+add_test(NAME control_integration COMMAND test_control_integration)
+
 add_executable(test_cpu test_cpu.cpp)
 target_link_libraries(test_cpu PRIVATE risc201_core)
 add_test(NAME cpu COMMAND test_cpu)
