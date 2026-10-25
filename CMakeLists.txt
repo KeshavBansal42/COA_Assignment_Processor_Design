@@ -57,6 +57,16 @@ target_link_libraries(risc201_eval PRIVATE risc201_core)
 target_compile_definitions(risc201_eval
   PRIVATE RISC201_PROGRAMS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/programs")
 
+# Animated code and machine state visualizer.
+add_library(risc201_visualizer STATIC
+  visualizer/terminal.cpp
+  visualizer/view.cpp)
+target_link_libraries(risc201_visualizer PUBLIC risc201_core risc201_disassembler)
+
+add_executable(risc201_viz visualizer/main.cpp)
+set_target_properties(risc201_viz PROPERTIES OUTPUT_NAME risc201-viz)
+target_link_libraries(risc201_viz PRIVATE risc201_visualizer risc201_assembler)
+
 enable_testing()
 add_subdirectory(tests)
 
