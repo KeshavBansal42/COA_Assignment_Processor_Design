@@ -27,6 +27,10 @@ class Cli {
 
   void commandStack(int maxDepth) const; // added after memory_safety
 
+  void commandMode(const std::string& name);
+  void commandMicro(const std::string& name);
+  void commandCycles() const;
+
   void commandBreak(const std::string& target);
   void commandDelete(const std::string& target);
   void commandBreaks() const;

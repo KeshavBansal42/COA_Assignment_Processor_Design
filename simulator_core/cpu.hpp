@@ -71,6 +71,10 @@ public:
   void setPipelineMode(PipelineMode mode);
   PipelineMode pipelineMode() const;
 
+  // Which control memory the control unit reads. Horizontal is the default.
+  void setControlMode(ControlMode mode);
+  ControlMode controlMode() const;
+
   // Clock cycles and retired instructions since the last reset.
   uint64_t cycles() const;
   uint64_t instructions() const;

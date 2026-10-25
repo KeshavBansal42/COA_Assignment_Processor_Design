@@ -128,6 +128,24 @@ bool Cli::execute(const std::string& line) {
     }
     commandStack(depth);
   } 
+
+  else if (command == "mode") {
+    std::string name;
+    if (input >> name) {
+      commandMode(name);
+    } else {
+      out_ << "usage: mode <sequential|4stage|6stage>\n";
+    }
+  } else if (command == "micro") {
+    std::string name;
+    if (input >> name) {
+      commandMicro(name);
+    } else {
+      out_ << "usage: micro <horizontal|vertical>\n";
+    }
+  } else if (command == "cycles") {
+    commandCycles();
+  }
   
   else if (command == "help") {
     printHelp();
@@ -214,6 +232,8 @@ void Cli::commandRegs() const {
   const Flags flags = cpu_.flags();
   out_ << "FLAGS Z=" << flags.z << " N=" << flags.n << " C=" << flags.c << " V=" << flags.v
        << "\n";
+  out_ << "mode " << pipelineModeName(cpu_.pipelineMode()) << "  cycles " << cpu_.cycles()
+       << "  instructions " << cpu_.instructions() << "\n";
 }
 
 void Cli::commandMem(uint32_t start, uint32_t count) const {
@@ -241,6 +261,49 @@ void Cli::commandMem(uint32_t start, uint32_t count) const {
 void Cli::commandStack(int maxDepth) const {
   // run our ascii visualizer
   renderStackAscii(cpu_.rawMemory(), cpu_.sp(), maxDepth);
+}
+
+void Cli::commandMode(const std::string& name) {
+  PipelineMode mode;
+  if (name == "sequential") {
+    mode = PipelineMode::Sequential;
+  } else if (name == "4stage") {
+    mode = PipelineMode::FourStage;
+  } else if (name == "6stage") {
+    mode = PipelineMode::SixStage;
+  } else {
+    out_ << "usage: mode <sequential|4stage|6stage>\n";
+    return;
+  }
+
+  // Switching the pipeline restarts the program, the loaded program stays.
+  cpu_.setPipelineMode(mode);
+  cpu_.reset();
+  out_ << "pipeline mode " << pipelineModeName(mode) << "\n";
+}
+
+void Cli::commandMicro(const std::string& name) {
+  ControlMode mode;
+  if (name == "horizontal") {
+    mode = ControlMode::Horizontal;
+  } else if (name == "vertical") {
+    mode = ControlMode::Vertical;
+  } else {
+    out_ << "usage: micro <horizontal|vertical>\n";
+    return;
+  }
+
+  cpu_.setControlMode(mode);
+  out_ << "control mode " << (mode == ControlMode::Vertical ? "vertical" : "horizontal")
+       << "\n";
+}
+
+void Cli::commandCycles() const {
+  out_ << "cycles " << cpu_.cycles() << "  instructions " << cpu_.instructions() << "\n";
+  if (cpu_.pipelineMode() != PipelineMode::Sequential) {
+    out_ << "stalls " << cpu_.stalls() << "  flushes " << cpu_.flushes() << "  forwards "
+         << cpu_.forwards() << "\n";
+  }
 }
 
 void Cli::commandBreak(const std::string& target) {
@@ -390,6 +453,10 @@ void Cli::printHelp() const {
   out_ << "watch <addr|label>  stop when the address is written\n";
   out_ << "unwatch <addr|label> remove a watchpoint\n";
   out_ << "watches             list the watchpoints\n";
+  out_ << "stack [n]           show the top n stack words, default 16\n";
+  out_ << "mode <name>         sequential, 4stage or 6stage pipeline\n";
+  out_ << "micro <name>        horizontal or vertical microcode\n";
+  out_ << "cycles              show cycles, instructions and hazard counts\n";
   out_ << "help                show this list\n";
   out_ << "quit                leave the simulator\n";
 }

@@ -114,6 +114,10 @@ void Cpu::setPipelineMode(PipelineMode mode) {
 
 PipelineMode Cpu::pipelineMode() const { return mode_; }
 
+void Cpu::setControlMode(ControlMode mode) { control_.setMode(mode); }
+
+ControlMode Cpu::controlMode() const { return control_.mode(); }
+
 uint64_t Cpu::cycles() const { return cycles_; }
 
 uint64_t Cpu::instructions() const { return instructions_; }
