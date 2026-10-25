@@ -50,5 +50,16 @@ add_executable(risc201_disasm disassembler/main.cpp)
 set_target_properties(risc201_disasm PROPERTIES OUTPUT_NAME risc201-disasm)
 target_link_libraries(risc201_disasm PRIVATE risc201_disassembler)
 
+# Evaluation harness: pipeline and microcode comparison numbers.
+add_executable(risc201_eval eval/eval_matrix.cpp)
+set_target_properties(risc201_eval PROPERTIES OUTPUT_NAME risc201-eval)
+target_link_libraries(risc201_eval PRIVATE risc201_core)
+target_compile_definitions(risc201_eval
+  PRIVATE RISC201_PROGRAMS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/programs")
+
 enable_testing()
 add_subdirectory(tests)
+
+# The evaluation run doubles as a smoke test that every program still runs in
+# every configuration.
+add_test(NAME evaluation COMMAND risc201_eval)
