@@ -30,6 +30,12 @@ add_executable(test_pipeline test_pipeline.cpp)
 target_link_libraries(test_pipeline PRIVATE risc201_core)
 add_test(NAME pipeline COMMAND test_pipeline)
 
+add_executable(test_pipeline_hazards test_pipeline_hazards.cpp)
+target_link_libraries(test_pipeline_hazards PRIVATE risc201_core)
+target_compile_definitions(test_pipeline_hazards
+  PRIVATE RISC201_PROGRAMS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/programs")
+add_test(NAME pipeline_hazards COMMAND test_pipeline_hazards)
+
 add_executable(test_full_isa test_full_isa.cpp)
 target_link_libraries(test_full_isa PRIVATE risc201_core)
 add_test(NAME full_isa COMMAND test_full_isa)
