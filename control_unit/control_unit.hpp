@@ -1,6 +1,9 @@
 #pragma once
 
-// The hardwired decode goes in first, microcode replaces it later.
+// The control unit turns one instruction word into the control signals the
+// pipeline reads. It can read them from either encoding:
+//   Horizontal: one wide ROM word per instruction, one bit per control wire.
+//   Vertical:   narrow encoded micro operations walked by a sequencer.
 
 #include <cstdint>
 
@@ -8,50 +11,38 @@
 
 namespace risc201 {
 
-// operations for our microcode alu
-enum class ALUOperation { 
-  ADD, 
-  SUB, 
-  AND, 
-  OR, 
-  NONE 
+// Which control memory the decode reads from.
+enum class ControlMode {
+  Horizontal,
+  Vertical,
 };
-
-// struct to hold the decodded parts of instruction for our microcode
-struct DecodedInstruction {
-  uint8_t opcode;
-  uint8_t rs;
-  uint8_t rt;
-  uint8_t rd;
-  int32_t immediate;
-  
-  // our microcode control signals
-  bool RegWrite;
-  bool MemRead;
-  bool MemWrite;
-  bool Branch;
-  bool ALUSrc;
-  bool illegal;
-  
-  ALUOperation aluOp; // newly added field
-};
-
-DecodedInstruction decodeInstruction(uint32_t instr);
 
 class ControlUnit {
  public:
   // Turns one instruction word into the signals the pipeline needs.
   ControlSignals decode(uint32_t instr);
 
-  // Which microinstruction the current instruction is on
+  // Which word of control memory the current instruction is on.
   uint32_t getMicroPC() const;
 
+  // How many micro operations the last decode walked. One for horizontal.
+  uint32_t lastMicroOpCount() const;
+
+  void setMode(ControlMode mode);
+  ControlMode mode() const;
+
  private:
+  ControlSignals decodeHorizontal(uint32_t instr);
+  ControlSignals decodeVertical(uint32_t instr);
+
+  ControlMode mode_ = ControlMode::Horizontal;
+
   // keeps track of what rom address we are on
-  uint32_t microPc_ = 0; 
+  uint32_t microPc_ = 0;
+  uint32_t microOpCount_ = 0;
 };
 
-// alias so keshav cpu and tests dont break
+// alias so the cpu and the existing tests keep compiling
 using MicroprogrammedControl = ControlUnit;
 
 }  // namespace risc201
