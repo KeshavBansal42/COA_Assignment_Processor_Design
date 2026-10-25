@@ -67,3 +67,7 @@ add_executable(test_disassembler test_disassembler.cpp)
 target_link_libraries(test_disassembler PRIVATE risc201_disassembler risc201_assembler)
 add_test(NAME disassembler COMMAND test_disassembler)
 
+add_executable(test_visualizer test_visualizer.cpp)
+target_link_libraries(test_visualizer PRIVATE risc201_visualizer)
+add_test(NAME visualizer COMMAND test_visualizer)
+
