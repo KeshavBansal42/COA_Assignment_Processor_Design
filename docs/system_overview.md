@@ -34,12 +34,12 @@ Here is how the files actually interact during a simulation run:
             │
             ├── [IF]    Reads cpu_.readMem(pc) into IfId latch
             │
-            ├── [ID/OF] Calls control_.decode(instr) --> [HardwiredControl]
+            ├── [ID/OF] Calls control_.decode(instr) --> [ControlUnit]
             │           Reads cpu_.reg(rs), cpu_.reg(rt) into IdEx latch
             │
-            ├── [EX]    Calls alu_.execute(...)       --> [SimpleAlu]
-            │           Calls safety_.checkStack(...) --> [SimpleSafety]
-            │           Calls safety_.checkMem(...)   --> [SimpleSafety]
+            ├── [EX]    Calls alu_.execute(...)       --> [Alu]
+            │           Calls safety_.checkStack(...) --> [MemorySafety]
+            │           Calls safety_.checkMem(...)   --> [MemorySafety]
             │           Computes branch/jump targets into ExWb latch
             │
             └── [WB]    Commits to cpu_:
@@ -62,20 +62,13 @@ Here is how the files actually interact during a simulation run:
              ▼              ▼              ▼
        ┌───────────┐  ┌───────────┐  ┌───────────┐
        │  alu/     │  │ control_  │  │ memory_   │
-       │  alu.hpp  │  │ unit.hpp  │  │ safety.hpp│  (Pure abstract interfaces)
-       └─────┬─────┘  └─────┬─────┘  └─────┬─────┘
-             │              │              │
-      implements     implements     implements
-             │              │              │
-             ▼              ▼              ▼
-       ┌───────────┐  ┌───────────┐  ┌───────────┐
-       │SimpleAlu  │  │Hardwired  │  │Simple     │
-       │           │  │Control    │  │Safety     │  (Concrete "stand-in" modules)
+       │  Alu      │  │ ControlUnit│ │ MemorySafety│  (the real modules)
        └─────┬─────┘  └─────┬─────┘  └─────┬─────┘
              │              │              │
              └──────────────┼──────────────┘
                             ▼
-              Stored directly inside Cpu
+              Held by value in Cpu, injected
+              into Pipeline by reference
 ```
 
 ---
@@ -84,21 +77,14 @@ Here is how the files actually interact during a simulation run:
 
 There is a significant amount of structural scaffolding and boilerplate in this codebase. Here is the honest breakdown of what is redundant, why it exists, and whether it matters:
 
-### 1. The Interface-Folder vs Stand-in Duplication (Highest Redundancy)
-- **The Issue:** 
-  - `alu/alu.hpp`, `control_unit/control_unit.hpp`, and `memory_safety/memory_safety.hpp` declare pure abstract base classes (`Alu`, `ControlUnit`, `MemorySafety`) with virtual destructors and pure virtual methods (`= 0`).
-  - `simulator_core/` has `simple_alu.hpp`, `hardwired_control.hpp`, and `simple_safety.hpp`, which implement those exact interfaces.
-  - There is only **one** implementation of each in the entire system.
-- **Why it exists:** Academic team scaffolding. The project was set up so different team members could code their modules in separate folders without touching `simulator_core/`.
-- **The Reality:** Until someone actually writes a secondary module (e.g., a microcoded control unit), these virtual base classes are pure overhead. In `Cpu`, they aren't even allocated dynamically—`Cpu` instantiates `HardwiredControl control_{}; SimpleAlu alu_{}; SimpleSafety safety_{};` directly as value members on the stack/object.
+### 1. Module Folders Hold The Implementation, Cpu Holds One Of Each
+- **The Shape:** `alu/`, `control_unit/` and `memory_safety/` each define a concrete class (`Alu`, `ControlUnit`, `MemorySafety`) with no virtual methods. `Cpu` holds one of each by value and injects them into `Pipeline` by reference.
+- **Why it exists:** Team scaffolding. The folders were laid out so members could work in isolation, and the pipeline only depends on the module's method signatures, not on how the module is built.
+- **The Reality:** With a single implementation the injection buys flexibility rather than speed: swapping in a second implementation (for example a vertical microcode control unit) is a change in `Cpu` only.
 
-### 2. The Floating "Abstract" Assembler and Disassembler
-- **The Issue:** 
-  - `assembler/assembler.hpp` defines `class Assembler { virtual vector<uint32_t> assemble(...) = 0; };`
-  - `disassembler/disassembler.hpp` defines `class Disassembler { virtual string disassemble(...) = 0; };`
-- **The Reality:** 
-  - Neither of these is connected to the simulator. Nothing in `simulator_core/` calls, links, or references them.
-  - An assembler and disassembler are stateless batch translation functions (`string -> vector<uint32_t>` and `uint32_t -> string`). Wrapping them in abstract polymorphic classes with vtables is classic OOP Java-brain over-engineering.
+### 2. The Assembler and Disassembler Are Separate Batch Tools
+- **The Shape:** `assembler/` and `disassembler/` expose free functions, `assemble(path)` and `disassemble(path)`, with their own `risc201-asm` and `risc201-disasm` executables.
+- **The Reality:** They are deliberately not linked into the simulator. They translate a whole file at a time, so the simulator loads their `.hex` output rather than calling into them.
 
 ### 3. The "Pipeline" That Doesn't Actually Pipeline
 - **The Issue:**
@@ -144,11 +130,10 @@ There is a significant amount of structural scaffolding and boilerplate in this 
 ## 4. Why Is It Structured This Way? (The Honest Context)
 
 1. **Course Specification Constraints:** The author had to satisfy specific grading rubric items (e.g. "provide an ALU interface", "provide a Control Unit interface", "separate memory safety").
-2. **"Stand-In" Bringup Strategy:** Rather than waiting for teammate modules, the core simulator was made functional first using minimal concrete stand-ins (`HardwiredControl`, `SimpleAlu`, `SimpleSafety`).
+2. **"Stand-In" Bringup Strategy:** Rather than waiting for teammate modules, the core simulator was made functional first using minimal concrete stand-ins (`HardwiredControl`, `SimpleAlu`, `SimpleSafety`). Those have since been replaced by the real modules, which are what `Cpu` holds today.
 3. **Prepared Extension Points:**
    - The pipeline latches are waiting for hazard detection and instruction overlapping.
    - `ControlUnit::getMicroPC()` is waiting for a vertical microcode engine.
-   - `Assembler` and `Disassembler` headers are waiting for their implementations.
 
 ---
 
@@ -157,16 +142,13 @@ There is a significant amount of structural scaffolding and boilerplate in this 
 | File | Real Role | Necessary? | Redundancy Note |
 |---|---|---|---|
 | `isa_spec/isa201.h` | Core definitions, masks, encoders/decoders | **Yes** | Single source of truth for ISA constants |
-| `alu/alu.hpp` | Abstract interface for ALU | Optional | Pure interface with 1 implementation (`SimpleAlu`) |
-| `control_unit/control_unit.hpp` | Abstract interface for decode | Optional | Pure interface with 1 implementation (`HardwiredControl`) |
-| `memory_safety/memory_safety.hpp` | Abstract interface for checks | Optional | Pure interface with 1 implementation (`SimpleSafety`) |
-| `assembler/assembler.hpp` | Abstract interface for assembler | **Redundant** | An assembler should be a function, not a virtual class |
-| `disassembler/disassembler.hpp` | Abstract interface for disassembler | **Redundant** | Disassembly is a stateless function |
+| `alu/alu.hpp` | Structural ALU | **Yes** | Carry-lookahead adder, Booth multiply, restoring divide |
+| `control_unit/control_unit.hpp` | Microcoded decode | **Yes** | Horizontal control ROM, one microword per instruction |
+| `memory_safety/memory_safety.hpp` | Memory & stack checks | **Yes** | Bounds checks, exception strings, ASCII stack view |
+| `assembler/assembler.hpp` | Two-pass assembler | **Yes** | Free functions behind the `risc201-asm` CLI |
+| `disassembler/disassembler.hpp` | Disassembler | **Yes** | Free functions behind the `risc201-disasm` CLI |
 | `simulator_core/cpu.*` | Architectural machine state | **Yes** | Real engine holding memory and registers |
 | `simulator_core/pipeline.*` | 4-stage sequential executor | **Yes** | Synchronous today; latches exist for future hazards |
-| `simulator_core/simple_alu.*` | Working ALU logic | **Yes** | Implements all 12 math/logic operations |
-| `simulator_core/hardwired_control.*` | Working instruction decoder | **Yes** | Decodes all 27 instructions to control signals |
-| `simulator_core/simple_safety.*` | Memory & stack bounds checking | **Yes** | Implements all hardware protection rules |
 | `simulator_core/debugger.*` | Breakpoints & watchpoint manager | **Yes** | Clean separation of debugging features from CPU |
 | `simulator_core/cli.*` | Interactive terminal shell | **Yes** | Command parser and REPL UI |
 | `simulator_core/main.cpp` | CLI entry point | **Yes** | 30 lines, passes control to Cli |

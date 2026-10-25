@@ -56,17 +56,18 @@ written anything, so a faulting instruction has no side effects, and `run()` ret
 | `ILLEGAL_INSTRUCTION` | ID/OF | the opcode is not one of the 27 defined instructions |
 | `PC_OUT_OF_RANGE` | IF | PC is past `0x7FF` |
 
-## Modules and stand-ins
+## Modules
 
-The pipeline talks to the module interfaces, never to a concrete module:
+The pipeline takes its collaborators by reference and never constructs them:
 
 - `Alu` (`alu/alu.hpp`) for arithmetic in EX
 - `ControlUnit` (`control_unit/control_unit.hpp`) for decode in ID/OF
 - `MemorySafety` (`memory_safety/memory_safety.hpp`) for the stack and memory checks in EX
 
-The real modules do not exist yet, so `simulator_core/` provides `HardwiredControl`,
-`SimpleAlu` and `SimpleSafety`. They implement those interfaces, so replacing them with
-the real control unit, ALU and safety modules is a change in `Cpu` only.
+`Cpu` owns one of each: the structural `Alu`, the microcoded `ControlUnit` and
+`MemorySafetyImpl`. Because they are injected rather than built inside the pipeline, a
+different implementation (for example a vertical microcode control unit) can be swapped
+in without touching the pipeline.
 
 ## Files
 
@@ -74,12 +75,12 @@ the real control unit, ALU and safety modules is a change in `Cpu` only.
 |---|---|
 | `cpu.hpp` / `cpu.cpp` | machine state, `load`, `step`, `run`, `reset` |
 | `pipeline.hpp` / `pipeline.cpp` | the four stages and the latches |
-| `hardwired_control.hpp` / `.cpp` | stand-in decode for all 27 instructions |
-| `simple_alu.hpp` / `simple_alu.cpp` | stand-in ALU for all 12 operations |
-| `simple_safety.hpp` / `simple_safety.cpp` | stand-in stack and memory checks |
 | `debugger.hpp` / `debugger.cpp` | breakpoints, watchpoints and symbols |
 | `cli.hpp` / `cli.cpp` | command shell |
 | `main.cpp` | REPL entry point |
+
+The ALU, control unit and safety module live in their own folders, `alu/`,
+`control_unit/` and `memory_safety/`.
 
 ## Choices the ISA leaves open
 

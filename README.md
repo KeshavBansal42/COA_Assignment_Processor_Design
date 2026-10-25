@@ -11,11 +11,11 @@ CSC-201 Computer Organization & Architecture, Autumn 2026.
 |---|---|
 | `isa_spec/isa201.h` | the frozen ISA: opcodes, instruction formats, encoding helpers, exception codes and the types the modules share |
 | `simulator_core/` | CPU, pipeline, CLI and debugger |
-| `alu/` | ALU interface |
-| `control_unit/` | control unit interface |
-| `assembler/` | assembler interface |
-| `disassembler/` | disassembler interface |
-| `memory_safety/` | stack and memory range check interface |
+| `alu/` | structural ALU: carry-lookahead adder, Booth multiply, restoring divide |
+| `control_unit/` | microcoded control unit, horizontal control ROM |
+| `assembler/` | two-pass assembler and the `risc201-asm` CLI |
+| `disassembler/` | disassembler and the `risc201-disasm` CLI |
+| `memory_safety/` | stack and memory range checks, exception strings, ASCII stack view |
 | `tests/` | unit and integration tests, `tests/programs/` holds the demo programs |
 | `docs/` | ISA specification and design documents |
 
@@ -49,8 +49,10 @@ The simulator core is done: the whole ISA executes on the 4-stage pipeline, exce
 are raised and reported, and the CLI and debugger work. The three demo programs in
 `tests/programs/` run end to end, one of them on purpose into a stack overflow.
 
-The ALU and control unit are not written yet, so the simulator
-uses the stand-ins in `simulator_core/`. They implement the same interfaces as the real
-modules, so swapping them in is a change in `Cpu` only.
+The real modules are wired into `Cpu`: the structural ALU (`alu/`), the horizontal
+microcoded control unit (`control_unit/`), the memory safety checks (`memory_safety/`)
+and the assembler/disassembler. `Cpu` passes them to the pipeline by reference, so
+swapping an implementation is a change in `Cpu` only.
 
-Not started: vertical microcode, the 6-stage pipeline, and the evaluation work.
+Not started: vertical microcode, the 6-stage overlapping pipeline, the evaluation
+matrix and the animated visualizer.
