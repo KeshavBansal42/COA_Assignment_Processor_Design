@@ -18,6 +18,10 @@ add_executable(test_control_integration test_control_integration.cpp)
 target_link_libraries(test_control_integration PRIVATE risc201_core)
 add_test(NAME control_integration COMMAND test_control_integration)
 
+add_executable(test_microcode test_microcode.cpp)
+target_link_libraries(test_microcode PRIVATE risc201_core)
+add_test(NAME microcode COMMAND test_microcode)
+
 add_executable(test_cpu test_cpu.cpp)
 target_link_libraries(test_cpu PRIVATE risc201_core)
 add_test(NAME cpu COMMAND test_cpu)
