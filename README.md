@@ -41,7 +41,7 @@ The visualizer animates a program a cycle at a time and shows the code line, the
 registers, the stack and the pipeline:
 
     ./build/risc201-viz tests/programs/loop.hex --mode 6stage
-    ./build/risc201-viz tests/programs/recursion.s --micro vertical
+    ./build/risc201-viz tests/programs/recursion.hex --micro vertical
 
 The evaluation harness prints the pipeline and microcode comparison numbers:
 
@@ -51,9 +51,14 @@ The evaluation harness prints the pipeline and microcode comparison numbers:
 
     cd build && ctest --output-on-failure
 
+Floating-point arithmetic is available as a four-instruction IEEE 754 binary32
+extension (`FADD`, `FSUB`, `FMUL`, `FDIV`). Registers hold raw float bit patterns;
+see `docs/isa_spec.md` and `tests/programs/float_demo.s` for details. The
+extension changes the PDF's frozen ISA and needs team agreement.
+
 ## Status
 
-Complete. The whole ISA runs on the sequential reference and on the 4-stage and
+The implemented ISA runs on the sequential reference and on the 4-stage and
 6-stage overlapped pipelines, which reach the same machine state as the
 reference (`tests/test_pipeline_hazards.cpp`). The control unit reads either the
 horizontal ROM or the vertical microprogram, and both decode identically

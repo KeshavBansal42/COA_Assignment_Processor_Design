@@ -48,7 +48,7 @@ inline constexpr AluOp microAluOf(uint16_t word) {
   return static_cast<AluOp>((word >> 4) & 0x0Fu);
 }
 
-// Room for every instruction's microprogram. The current program needs 78 words.
+// Room for every instruction's microprogram, including the floating-point extension.
 inline constexpr std::size_t kMicroProgramSlots = 128;
 
 // Sentinel in the start table for opcodes that have no microprogram, which the
@@ -161,6 +161,26 @@ constexpr MicroProgram buildMicroProgram() {
   b.begin(Opcode::CMP);
   b.word(MO::ALU_REG, AluOp::CMP);
   b.word(MO::FLAGS);
+  b.word(MO::END);
+
+  b.begin(Opcode::FADD);
+  b.word(MO::ALU_REG, AluOp::FADD);
+  b.word(MO::REG_WRITE);
+  b.word(MO::END);
+
+  b.begin(Opcode::FSUB);
+  b.word(MO::ALU_REG, AluOp::FSUB);
+  b.word(MO::REG_WRITE);
+  b.word(MO::END);
+
+  b.begin(Opcode::FMUL);
+  b.word(MO::ALU_REG, AluOp::FMUL);
+  b.word(MO::REG_WRITE);
+  b.word(MO::END);
+
+  b.begin(Opcode::FDIV);
+  b.word(MO::ALU_REG, AluOp::FDIV);
+  b.word(MO::REG_WRITE);
   b.word(MO::END);
 
   b.begin(Opcode::ADDI);

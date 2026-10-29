@@ -180,6 +180,10 @@ bool CyclePipeline::detectStall(const PipeLatch& in,
   const bool usesMem = s.memRead || s.memWrite || s.push || s.pop || s.ret;
 
   switch (s.opcode) {
+    case Opcode::FADD:
+    case Opcode::FSUB:
+    case Opcode::FMUL:
+    case Opcode::FDIV:
     case Opcode::ADD:
     case Opcode::SUB:
     case Opcode::MUL:

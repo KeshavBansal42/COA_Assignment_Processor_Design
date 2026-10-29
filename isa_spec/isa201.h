@@ -42,7 +42,7 @@ inline constexpr unsigned kOffsetBits = 26;
 inline constexpr uint32_t kImmediateMask = 0x3FFFFu;
 inline constexpr uint32_t kOffsetMask = 0x3FFFFFFu;
 
-// 27 instructions, grouped by hex opcode.
+// The original 27 instructions plus four floating-point extensions.
 enum class Opcode : uint8_t {
   NOP = 0x00,
   HALT = 0x01,
@@ -58,6 +58,10 @@ enum class Opcode : uint8_t {
   SHR = 0x0B,
   MOV = 0x0C,
   CMP = 0x0D,
+  FADD = 0x17,
+  FSUB = 0x18,
+  FMUL = 0x19,
+  FDIV = 0x1A,
   ADDI = 0x10,
   LDI = 0x11,
   LW = 0x12,
@@ -102,6 +106,10 @@ inline constexpr InstructionInfo kInstructionTable[] = {
     {Opcode::SHR, "SHR", InstructionFormat::R},
     {Opcode::MOV, "MOV", InstructionFormat::R},
     {Opcode::CMP, "CMP", InstructionFormat::R},
+    {Opcode::FADD, "FADD", InstructionFormat::R},
+    {Opcode::FSUB, "FSUB", InstructionFormat::R},
+    {Opcode::FMUL, "FMUL", InstructionFormat::R},
+    {Opcode::FDIV, "FDIV", InstructionFormat::R},
     {Opcode::ADDI, "ADDI", InstructionFormat::I},
     {Opcode::LDI, "LDI", InstructionFormat::I},
     {Opcode::LW, "LW", InstructionFormat::I},
@@ -208,6 +216,7 @@ enum class AluOp : uint8_t {
   SHR,
   MOV,
   CMP,
+  FADD, FSUB, FMUL, FDIV,
 };
 
 struct AluResult {

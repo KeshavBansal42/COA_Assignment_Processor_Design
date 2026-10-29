@@ -131,7 +131,7 @@ int main(int argc, char** argv) {
 
   std::vector<uint32_t> words;
   try {
-    if (endsWith(program, ".s")) {
+    if (endsWith(program, ".s") || endsWith(program, ".asm")) {
       assemble(program, words);
     } else {
       words = loadHexFile(program);
@@ -159,7 +159,7 @@ int main(int argc, char** argv) {
   // Headless or one shot: run to the end and print the final frame.
   if (once || !terminal.interactive()) {
     cpu.run();
-    options.status = "ran to completion";
+    options.status = cpu.halted() ? "halted" : "stopped: " + toString(cpu.exception());
     std::cout << renderFrame(cpu, options, nullptr);
     return 0;
   }

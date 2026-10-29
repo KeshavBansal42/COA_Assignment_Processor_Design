@@ -159,6 +159,11 @@ std::vector<std::string> stackPanel(const Cpu& cpu, const MachineSnapshot* previ
 
   const uint32_t sp = cpu.sp();
   lines.push_back(" SP = " + hexWord(sp));
+  if (sp < kStackBase || sp > kInitialSp) {
+    lines.push_back(" (stack pointer outside stack region)");
+    return lines;
+  }
+  lines.push_back(" depth " + decimal(kInitialSp - sp) + " / " + decimal(kInitialSp - kStackBase) + " words");
 
   std::size_t shown = 0;
   for (uint32_t i = 0; i < kStackDepth; ++i) {
@@ -171,7 +176,9 @@ std::vector<std::string> stackPanel(const Cpu& cpu, const MachineSnapshot* previ
     if (i == 0) {
       line += "  <-- top of stack";
     }
-    if (previous != nullptr && i < previous->stack.size() && previous->stack[i] != value) {
+    if (previous != nullptr && address >= previous->sp &&
+        address - previous->sp < previous->stack.size() &&
+        previous->stack[address - previous->sp] != value) {
       line += "   (written)";
     }
     lines.push_back(line);

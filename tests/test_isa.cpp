@@ -36,7 +36,7 @@ static void testJTypeOffset() {
 }
 
 static void testOpcodeTable() {
-  assert(kInstructionCount == 27);
+  assert(kInstructionCount == 31);
   assert(isDefinedOpcode(Opcode::CALL));
   assert(!isDefinedOpcode(static_cast<Opcode>(0x3F)));
   assert(formatOf(Opcode::LW) == InstructionFormat::I);

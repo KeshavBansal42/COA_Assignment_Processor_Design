@@ -71,3 +71,7 @@ add_executable(test_visualizer test_visualizer.cpp)
 target_link_libraries(test_visualizer PRIVATE risc201_visualizer)
 add_test(NAME visualizer COMMAND test_visualizer)
 
+
+add_executable(test_float test_float.cpp)
+target_link_libraries(test_float PRIVATE risc201_core risc201_assembler risc201_disassembler)
+add_test(NAME float COMMAND test_float)
