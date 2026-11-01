@@ -1,4 +1,5 @@
 #include "alu/float32.hpp"
+#include "alu/alu.hpp"
 
 #include <utility>
 
@@ -9,6 +10,7 @@ constexpr uint32_t kSign = 0x80000000u;
 constexpr uint32_t kFraction = 0x007fffffu;
 constexpr uint32_t kHidden = 0x00800000u;
 constexpr uint32_t kInfinity = 0x7f800000u;
+constexpr uint32_t kMaxFinite = 0x7f7fffffu;
 constexpr uint32_t kQuiet = 0x00400000u;
 constexpr uint32_t kNaN = 0x7fc00000u;
 
@@ -27,7 +29,7 @@ struct Parts {
 Parts unpack(uint32_t word) {
     const unsigned field = (word >> 23) & 255;
     return {(word & kSign) != 0, field, word & kFraction,
-            field == 0 ? -126 : static_cast<int>(field) - 127};
+            field == 0 ? -126 : detail::subtractSigned32(static_cast<int32_t>(field), 127)};
 }
 
 // Convert finite nonzero inputs, including subnormals, to a 24-bit significand
@@ -36,7 +38,7 @@ void normalize(Parts& p) {
     if (p.field != 0) p.significand |= kHidden;
     while (p.significand < kHidden) {
         p.significand <<= 1;
-        --p.exponent;
+        p.exponent = detail::subtractSigned32(p.exponent, 1);
     }
 }
 
@@ -57,7 +59,7 @@ Result nanResult(const Parts& a, const Parts& b) {
 uint64_t shiftRightJam(uint64_t value, unsigned distance) {
     if (distance == 0) return value;
     if (distance >= 64) return value != 0;
-    return (value >> distance) | ((value & ((uint64_t{1} << distance) - 1)) != 0);
+    return (value >> distance) | ((value << (64 - distance)) != 0);
 }
 
 // sig has three extra guard/round/sticky bits below its 24-bit significand.
@@ -66,14 +68,14 @@ Result roundPack(bool sign, int exponent, uint64_t sig, RoundingMode mode) {
     if (sig == 0) return {signedWord(sign, 0), {}};
     while (sig >= (uint64_t{1} << 27)) {
         sig = shiftRightJam(sig, 1);
-        ++exponent;
+        exponent = detail::addSigned32(exponent, 1);
     }
     while (sig < (uint64_t{1} << 26)) {
         sig <<= 1;
-        --exponent;
+        exponent = detail::subtractSigned32(exponent, 1);
     }
     if (exponent < -126) {
-        sig = shiftRightJam(sig, static_cast<unsigned>(-126 - exponent));
+        sig = shiftRightJam(sig, static_cast<unsigned>(detail::subtractSigned32(-126, exponent)));
         exponent = -126;
     }
 
@@ -88,10 +90,10 @@ Result roundPack(bool sign, int exponent, uint64_t sig, RoundingMode mode) {
         case RoundingMode::TowardNegative: increment = sign && tail != 0; break;
         case RoundingMode::TowardZero: break;
     }
-    rounded += increment;
+    rounded = detail::add32(rounded, static_cast<uint32_t>(increment));
     if (rounded >= (kHidden << 1)) {
         rounded >>= 1;
-        ++exponent;
+        exponent = detail::addSigned32(exponent, 1);
     }
 
     Status status{};
@@ -101,12 +103,12 @@ Result roundPack(bool sign, int exponent, uint64_t sig, RoundingMode mode) {
         const bool infinity = mode == RoundingMode::NearestEven ||
             (mode == RoundingMode::TowardPositive && !sign) ||
             (mode == RoundingMode::TowardNegative && sign);
-        return {signedWord(sign, infinity ? kInfinity : kInfinity - 1), status};
+        return {signedWord(sign, infinity ? kInfinity : kMaxFinite), status};
     }
 
     const bool subnormal = rounded < kHidden;
     status.underflow = subnormal && status.inexact;
-    const uint32_t field = subnormal ? 0u : static_cast<uint32_t>(exponent + 127);
+    const uint32_t field = subnormal ? 0u : static_cast<uint32_t>(detail::addSigned32(exponent, 127));
     return {signedWord(sign, (field << 23) | (rounded & kFraction)), status};
 }
 
@@ -130,10 +132,12 @@ Result addOrSubtract(uint32_t aWord, uint32_t bWord, bool subtract, RoundingMode
     // a is the larger magnitude, hence determines the nonzero result's sign.
     if (a.exponent < b.exponent ||
         (a.exponent == b.exponent && a.significand < b.significand)) std::swap(a, b);
-    const uint64_t left = uint64_t{a.significand} << 3;
-    const uint64_t right = shiftRightJam(uint64_t{b.significand} << 3,
-                                       static_cast<unsigned>(a.exponent - b.exponent));
-    const uint64_t sig = a.sign == b.sign ? left + right : left - right;
+    // 24 significand bits plus G/R/S, with one extra sum bit, fit in the CLA.
+    const uint32_t left = a.significand << 3;
+    const uint32_t right = static_cast<uint32_t>(shiftRightJam(uint64_t{b.significand} << 3,
+        static_cast<unsigned>(detail::subtractSigned32(a.exponent, b.exponent))));
+    const uint32_t sig = a.sign == b.sign ? detail::add32(left, right)
+                                         : detail::subtract32(left, right);
     if (sig == 0) return {signedWord(mode == RoundingMode::TowardNegative, 0), {}};
     return roundPack(a.sign, a.exponent, sig, mode);
 }
@@ -158,13 +162,12 @@ Result multiply(uint32_t aWord, uint32_t bWord, RoundingMode mode) {
     normalize(a);
     normalize(b);
 
-    // Exact 24 x 24 -> 48-bit significand product, using shift and add.
-    uint64_t product = 0;
-    for (unsigned bit = 0; bit < 24; ++bit) {
-        if ((b.significand >> bit) & 1) product += uint64_t{a.significand} << bit;
-    }
+    // Both normalized significands are positive signed 32-bit values. Reuse
+    // Booth's COMPLETE product; the public integer MUL's low word is insufficient.
+    const uint64_t product = detail::boothMultiply(a.significand, b.significand);
     // The product's binary point is after bit 46. Retain 24+3 bits.
-    return roundPack(sign, a.exponent + b.exponent, shiftRightJam(product, 20), mode);
+    return roundPack(sign, detail::addSigned32(a.exponent, b.exponent),
+                     shiftRightJam(product, 20), mode);
 }
 
 Result divide(uint32_t aWord, uint32_t bWord, RoundingMode mode) {
@@ -178,21 +181,21 @@ Result divide(uint32_t aWord, uint32_t bWord, RoundingMode mode) {
     if (a.zero()) return {signedWord(sign, 0), {}};
     normalize(a);
     normalize(b);
-    int exponent = a.exponent - b.exponent;
+    int exponent = detail::subtractSigned32(a.exponent, b.exponent);
     uint64_t remainder = a.significand;
     if (remainder < b.significand) {
         remainder <<= 1;
-        --exponent;
+        exponent = detail::subtractSigned32(exponent, 1);
     }
 
-    // Binary long division: produce 24 significand bits plus G/R/S precision.
+    // Reuse integer division's CLA subtract/test/restore step, but generate
+    // fractional quotient bits rather than truncating to an integer quotient.
     uint64_t quotient = 0;
     for (int bit = 26; bit >= 0; --bit) {
         quotient <<= 1;
-        if (remainder >= b.significand) {
-            remainder -= b.significand;
-            quotient |= 1;
-        }
+        const auto step = detail::restoringStep(remainder, b.significand);
+        remainder = step.remainder;
+        quotient |= static_cast<uint64_t>(step.quotientBit);
         if (bit != 0) remainder <<= 1;
     }
     if (remainder != 0) quotient |= 1; // All further quotient bits form sticky.

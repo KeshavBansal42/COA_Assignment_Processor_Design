@@ -1,5 +1,6 @@
 #include "alu/alu.hpp"
 #include "alu/float32.hpp"
+#include <cstring>
 
 namespace risc201 {
 
@@ -11,7 +12,7 @@ namespace risc201 {
 //   - Stage II: Top-down carry distribution tree (Figure 8.9)
 //   - Level 0:  16 2-bit Ripple Carry (RC) Adders for final sum bits
 // ---------------------------------------------------------------------------
-uint32_t Alu::cla_add(uint32_t a, uint32_t b, uint32_t c_in, bool& cout, bool& overflow) {
+uint32_t detail::claAdd(uint32_t a, uint32_t b, uint32_t c_in, bool& cout, bool& overflow) {
     // =======================================================================
     // STEP 1: Compute 1-bit Propagate (p) and Generate (g) for all 32 bits
     // Equations 8.2 & 8.3:
@@ -166,9 +167,42 @@ uint32_t Alu::cla_add(uint32_t a, uint32_t b, uint32_t c_in, bool& cout, bool& o
     return sum;
 }
 
-uint32_t Alu::booth_mul(uint32_t a, uint32_t b, bool& overflow) {
-    // A and M need 33 bits: -INT32_MIN cannot fit in a signed 32-bit word.
+uint32_t detail::add32(uint32_t a, uint32_t b) {
+    bool carry, overflow;
+    return claAdd(a, b, 0, carry, overflow);
+}
+
+uint32_t detail::subtract32(uint32_t a, uint32_t b) {
+    bool carry, overflow;
+    return claAdd(a, ~b, 1, carry, overflow);
+}
+
+int32_t detail::addSigned32(int32_t a, int32_t b) {
+    const uint32_t word = add32(static_cast<uint32_t>(a), static_cast<uint32_t>(b));
+    int32_t value;
+    std::memcpy(&value, &word, sizeof(value));
+    return value;
+}
+
+int32_t detail::subtractSigned32(int32_t a, int32_t b) {
+    const uint32_t word = subtract32(static_cast<uint32_t>(a), static_cast<uint32_t>(b));
+    int32_t value;
+    std::memcpy(&value, &word, sizeof(value));
+    return value;
+}
+
+uint64_t detail::addSubtract33(uint64_t a, uint64_t b, bool subtract) {
     constexpr uint64_t mask = (uint64_t{1} << 33) - 1;
+    const uint64_t operand = subtract ? (~b & mask) : b;
+    bool carry, overflow;
+    const uint32_t low = claAdd(static_cast<uint32_t>(a), static_cast<uint32_t>(operand),
+                                subtract ? 1u : 0u, carry, overflow);
+    const uint64_t high = ((a >> 32) ^ (operand >> 32) ^ uint64_t{carry}) & 1;
+    return (high << 32) | low;
+}
+
+uint64_t detail::boothMultiply(uint32_t a, uint32_t b) {
+    // A and M need 33 bits: -INT32_MIN cannot fit in a signed 32-bit word.
     constexpr uint64_t sign = uint64_t{1} << 32;
     const uint64_t M = uint64_t{a} | ((a & 0x80000000u) ? sign : 0);
     uint32_t Q = b;
@@ -179,15 +213,7 @@ uint32_t Alu::booth_mul(uint32_t a, uint32_t b, bool& overflow) {
         uint32_t Q_0 = Q & 1;
         if (Q_0 != Q_minus_1) {
             const bool subtract = Q_0 == 1;
-            const uint64_t operand = subtract ? (~M & mask) : M;
-            bool carry, unused_overflow;
-            const uint32_t low = cla_add(static_cast<uint32_t>(A),
-                                        static_cast<uint32_t>(operand),
-                                        subtract ? 1u : 0u, carry, unused_overflow);
-            // Extend the existing CLA with one full-adder bit, rather than
-            // replacing Booth's arithmetic with a host multiplication.
-            const uint64_t high = ((A >> 32) ^ (operand >> 32) ^ uint64_t{carry}) & 1;
-            A = (high << 32) | low;
+            A = addSubtract33(A, M, subtract);
         }
 
         Q_minus_1 = Q & 1;
@@ -196,22 +222,31 @@ uint32_t Alu::booth_mul(uint32_t a, uint32_t b, bool& overflow) {
         A = (A >> 1) | (A & sign);
     }
 
-    // In the widened product [A:Q], all 33 upper bits must extend Q's sign.
-    uint32_t q_sign = (Q >> 31) & 1;
-    uint64_t expected_A = q_sign ? mask : 0;
-    overflow = (A != expected_A);
+    // Discard only the redundant sign-extension guard bit, not the high word.
+    return (uint64_t{static_cast<uint32_t>(A)} << 32) | Q;
+}
 
-    return Q; 
+uint32_t Alu::booth_mul(uint32_t a, uint32_t b, bool& overflow) {
+    const uint64_t product = detail::boothMultiply(a, b);
+    const uint32_t low = static_cast<uint32_t>(product);
+    const uint32_t expectedHigh = (low >> 31) ? 0xffffffffu : 0u;
+    overflow = (product >> 32) != expectedHigh;
+    return low;
+}
+
+detail::DivisionStep detail::restoringStep(uint64_t partial, uint32_t divisor) {
+    const uint64_t trial = addSubtract33(partial, divisor, true);
+    const bool negative = (trial & (uint64_t{1} << 32)) != 0;
+    return {negative ? addSubtract33(trial, divisor, false) : trial, !negative};
 }
 
 detail::UnsignedDivisionResult detail::restoringDivide(uint32_t dividend, uint32_t divisor) {
     if (divisor == 0) {
         return {0, 0, ExceptionCode::DIV_BY_ZERO};
     }
-    // A holds the shifted partial remainder and a potentially negative trial
-    // subtraction. int64_t safely represents both for every uint32_t divisor.
-    int64_t A = 0;
-    const int64_t M = divisor;
+    // The shared restoring step models the 33-bit trial subtraction and
+    // restoration through the same CLA extension used by Booth multiplication.
+    uint64_t A = 0;
     uint32_t Q = dividend;
 
     for (int i = 0; i < 32; i++) {
@@ -219,13 +254,9 @@ detail::UnsignedDivisionResult detail::restoringDivide(uint32_t dividend, uint32
         A = (A << 1) | Q_msb;
         Q = (Q << 1);
 
-        A -= M;
-        if (A < 0) {
-            // Failed trial: restore A and leave the new quotient bit at zero.
-            A += M;
-        } else {
-            Q |= 1u;
-        }
+        const auto step = restoringStep(A, divisor);
+        A = step.remainder;
+        Q |= static_cast<uint32_t>(step.quotientBit);
     }
     return {Q, static_cast<uint32_t>(A), ExceptionCode::NONE};
 }
@@ -258,13 +289,13 @@ AluResult Alu::execute(AluOp op, uint32_t a, uint32_t b) {
             res.value = fp32::divide(a, b).value;
             break;
         case AluOp::ADD:
-            res.value = cla_add(a, b, 0, cout, overflow);
+            res.value = detail::claAdd(a, b, 0, cout, overflow);
             res.flags.c = cout;
             res.flags.v = overflow;
             break;
         case AluOp::SUB:
         case AluOp::CMP:
-            res.value = cla_add(a, ~b, 1, cout, overflow); 
+            res.value = detail::claAdd(a, ~b, 1, cout, overflow);
             res.flags.c = cout;
             res.flags.v = overflow;
             break;
