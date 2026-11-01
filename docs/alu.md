@@ -97,10 +97,81 @@ The ALU remains stateless and synchronous: every execute call completes in
 one EX invocation. Booth/division iterations do not advance simulated cycles.
 Multicycle execution needs coordination with pipeline stalls and forwarding.
 
-FADD/FSUB/FMUL/FDIV still use native IEEE binary32 host arithmetic and raw
-register bit patterns. They preserve architectural FLAGS; FDIV by zero follows
-floating-point infinity/NaN rules. Explicit floating-point algorithms,
-rounding controls, and floating-point status reporting are separate future work.
+FADD/FSUB/FMUL/FDIV use the explicit binary32 module described below. They
+preserve architectural FLAGS and complete in one EX invocation too.
+
+## Binary32 floating point
+
+`alu/float32.hpp` exposes stateless `fp32::add`, `subtract`, `multiply`, and
+`divide`. Operands and results are uint32 words: sign bit 31, exponent bits
+30-23 (bias 127), fraction bits 22-0. There is no native float/double arithmetic
+or dependence on the host rounding environment in the implementation.
+
+Finite nonzero inputs are unpacked into an unbiased exponent and a normalized
+24-bit significand. Subnormals use exponent -126 and no implicit leading one;
+they are normalized internally without losing information. Arithmetic follows
+Arithmetic-2's alignment, significand arithmetic, normalization, rounding and
+packing steps:
+
+- ADD/SUB align exponents with a right shift that retains discarded bits in a
+  sticky bit. Same signs add magnitudes; different signs subtract magnitudes.
+  The result is normalized before rounding.
+- MUL computes an exact 48-bit significand product using 24 shift/add steps,
+  adds unbiased exponents, and XORs signs.
+- DIV subtracts unbiased exponents and generates quotient bits with binary long
+  division (shift, compare, subtract). A nonzero remainder contributes sticky.
+  This is the baseline division algorithm, not Goldschmidt or Newton-Raphson.
+- A shared round/pack stage keeps guard, round and sticky information, supports
+  gradual underflow, rounds once, and handles a carry from rounding.
+
+### Rounding modes
+
+| API mode | Rule |
+|---|---|
+| NearestEven (default) | nearest representable value; exact ties choose an even retained LSB |
+| TowardZero | discard excess magnitude |
+| TowardPositive | round toward positive infinity |
+| TowardNegative | round toward negative infinity |
+
+CPU instructions always select NearestEven. The other modes are selectable by
+callers of the fp32 module; no CPU rounding register or new instruction is added.
+For example, 1 + 2^-24 returns 1 under NearestEven and the next larger binary32
+value under TowardPositive. The host rounding mode does not change either result.
+
+### Special values and status
+
+Every operation returns `fp32::Result { value, status }`. Status is per call,
+not sticky or global, and contains invalid, divideByZero, overflow, underflow,
+and inexact booleans. It is separate from integer Z/N/C/V and ExceptionCode.
+
+| Case | Value/status |
+|---|---|
+| Quiet NaN input | canonical quiet NaN 0x7FC00000 |
+| Signaling NaN input | canonical quiet NaN, invalid |
+| Opposing infinities in ADD, equal infinities in SUB, 0*infinity, 0/0, infinity/infinity | canonical quiet NaN, invalid |
+| Finite nonzero / signed zero | signed infinity, divideByZero |
+| Infinity / zero | signed infinity; no divideByZero |
+| Finite / infinity | signed zero |
+| Overflow | overflow + inexact; signed infinity or maximum finite value, depending on rounding direction |
+| Tiny, inexact rounded result | underflow + inexact |
+| Exactly representable subnormal | exact result, no underflow |
+
+NaN signs and payloads are intentionally canonicalized, not propagated.
+Tininess is detected **after rounding**: a tiny value rounded up to minimum
+normal reports inexact but not underflow. Exact cancellation produces -0 only
+under TowardNegative; like-signed zeros retain their sign. MUL/DIV zero signs
+are the XOR of operand signs.
+
+The CPU's AluResult retains its original interface. Its floating dispatch uses
+the module's value and does not surface FP status or raise integer exceptions.
+FP status is available to direct module callers/tests. Connecting it to a CPU
+status register is a separate team integration decision. Candidate Z/N flags
+returned by Alu::execute still describe raw result bits and are not FP comparisons;
+the control unit does not commit them for floating instructions.
+
+The rounding/status conventions can be compared with the
+[Berkeley SoftFloat interface documentation](https://www.jhauser.us/arithmetic/SoftFloat-3/doc/SoftFloat.html).
+This implementation does not link to or copy SoftFloat.
 
 ## Verification
 
@@ -116,6 +187,26 @@ directly if another module prevents building the full core:
 
 ```sh
 g++ -std=c++17 -O1 -g -Wall -Wextra -fsanitize=undefined,address -I . \
-    alu/alu.cpp tests/test_alu.cpp -o /tmp/risc201-test-alu
+    alu/alu.cpp alu/float32.cpp tests/test_alu.cpp -o /tmp/risc201-test-alu
 /tmp/risc201-test-alu
 ```
+
+`tests/test_float32.cpp` checks directed halfway cases, all rounding modes,
+special values, gradual underflow, rounding into minimum normal, and status
+independence from host fenv. It also compares 503,056 results/status records
+against host binary32 arithmetic using strict rounding compiler options. NaNs
+are canonicalized for comparison; host underflow for a rounded normal result
+is suppressed to allow hosts that detect tininess before rounding. Directed
+tests independently enforce the module's after-rounding underflow policy.
+
+```sh
+g++ -std=c++17 -O2 -Wall -Wextra -frounding-math -fno-fast-math \
+    -ffp-contract=off -I . alu/alu.cpp alu/float32.cpp tests/test_float32.cpp \
+    -o /tmp/risc201-test-float32
+/tmp/risc201-test-float32
+```
+
+With CMake, build `test_alu` and `test_float32` independently of memory safety,
+then run `ctest --test-dir build -R '^(alu|float32)$' --output-on-failure`.
+`tests/test_float.cpp` exercises instructions and special values across all six
+pipeline/control combinations when the simulator's other modules compile.

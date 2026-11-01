@@ -13,7 +13,7 @@ CSC-201 Computer Organization & Architecture, Autumn 2026.
 |---|---|
 | `isa_spec/isa201.h` | the frozen ISA: opcodes, instruction formats, encoding helpers, exception codes and the types the modules share |
 | `simulator_core/` | CPU, the sequential and overlapped pipelines, CLI and debugger |
-| `alu/` | structural ALU: carry-lookahead adder, Booth multiply, restoring divide |
+| `alu/` | carry-lookahead adder, Booth multiply, restoring divide, explicit binary32 arithmetic |
 | `control_unit/` | microcoded control unit, horizontal ROM and vertical microprogram |
 | `assembler/` | two-pass assembler and the `risc201-asm` CLI |
 | `disassembler/` | disassembler and the `risc201-disasm` CLI |
@@ -53,8 +53,16 @@ The evaluation harness prints the pipeline and microcode comparison numbers:
 
 Floating-point arithmetic is available as a four-instruction IEEE 754 binary32
 extension (`FADD`, `FSUB`, `FMUL`, `FDIV`). Registers hold raw float bit patterns;
-see `docs/isa_spec.md` and `tests/programs/float_demo.s` for details. The
+the implementation handles arithmetic, rounding and special values using integer
+operations. CPU instructions use nearest-even; the FP module exposes all four
+rounding modes and separate arithmetic status. See `docs/alu.md`, `docs/isa_spec.md`
+and `tests/programs/float_demo.s` for details. The
 extension changes the PDF's frozen ISA and needs team agreement.
+
+The arithmetic tests can be built independently of other modules:
+
+    cmake --build build --target test_alu test_float32
+    ctest --test-dir build -R '^(alu|float32)$' --output-on-failure
 
 ## Status
 

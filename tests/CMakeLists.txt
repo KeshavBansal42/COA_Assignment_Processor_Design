@@ -3,8 +3,18 @@ target_link_libraries(test_isa PRIVATE risc201_isa)
 add_test(NAME isa COMMAND test_isa)
 
 add_executable(test_alu test_alu.cpp)
-target_link_libraries(test_alu PRIVATE risc201_core)
+target_link_libraries(test_alu PRIVATE risc201_alu)
 add_test(NAME alu COMMAND test_alu)
+
+add_executable(test_float32 test_float32.cpp)
+target_link_libraries(test_float32 PRIVATE risc201_alu)
+# The host arithmetic oracle must honor dynamic rounding and avoid contraction.
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  target_compile_options(test_float32 PRIVATE -frounding-math -fno-fast-math -ffp-contract=off)
+elseif(MSVC)
+  target_compile_options(test_float32 PRIVATE /fp:strict)
+endif()
+add_test(NAME float32 COMMAND test_float32)
 
 add_executable(test_memory_checks test_memory_checks.cpp)
 target_link_libraries(test_memory_checks PRIVATE risc201_memory_safety)

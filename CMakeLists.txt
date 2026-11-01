@@ -17,16 +17,19 @@ add_library(risc201_memory_safety STATIC
   memory_safety/memory_safety.cpp)
 target_link_libraries(risc201_memory_safety PUBLIC risc201_isa)
 
+# Arithmetic can be built/tested independently of the simulator and safety module.
+add_library(risc201_alu STATIC alu/alu.cpp alu/float32.cpp)
+target_link_libraries(risc201_alu PUBLIC risc201_isa)
+
 # Simulator core: machine state, pipeline and the run loop.
 add_library(risc201_core STATIC
   simulator_core/cpu.cpp
-  alu/alu.cpp
   control_unit/control_unit.cpp
   simulator_core/pipeline.cpp
   simulator_core/cycle_pipeline.cpp
   simulator_core/debugger.cpp
   simulator_core/cli.cpp)
-target_link_libraries(risc201_core PUBLIC risc201_isa risc201_memory_safety)
+target_link_libraries(risc201_core PUBLIC risc201_isa risc201_memory_safety risc201_alu)
 
 # Command line simulator.
 add_executable(risc201_sim simulator_core/main.cpp)

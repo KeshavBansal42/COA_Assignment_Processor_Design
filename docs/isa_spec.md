@@ -130,10 +130,14 @@ instructions use general-purpose registers as raw IEEE 754 binary32 bit patterns
 | 19 | FMUL rd, rs, rt | rd = rs * rt |
 | 1A | FDIV rd, rs, rt | rd = rs / rt |
 
-These instructions do not modify FLAGS. Arithmetic uses the host's IEEE 754
-single-precision operations and rounding environment; NaN payloads and floating
-exception status are not specified. FDIV by zero follows floating-point rules
-(infinity or NaN), rather than raising the integer DIV_BY_ZERO exception.
+These instructions do not modify FLAGS. Arithmetic uses the explicit software
+binary32 implementation in `alu/float32.cpp`, with round-to-nearest, ties-to-even,
+independent of the host rounding environment. Subnormals and signed zeros are
+supported; NaNs are canonicalized to 0x7FC00000. FDIV by zero follows floating-point
+rules (infinity or NaN), rather than raising the integer DIV_BY_ZERO exception.
+The fp32 module API additionally supports rounding toward zero, positive infinity,
+and negative infinity, and returns per-operation floating-point status. Those
+controls/status are not CPU registers or instruction operands. See [ALU contract](alu.md).
 Values can be transferred through memory or constructed as bit patterns with
 integer instructions; there is no float literal or conversion instruction.
 See `tests/programs/float_demo.s` for an example. This extension changes the

@@ -1,7 +1,6 @@
 #include "alu/alu.hpp"
 #include "alu/integer_division.hpp"
-#include <cstring>
-#include <limits>
+#include "alu/float32.hpp"
 
 namespace risc201 {
 
@@ -245,25 +244,20 @@ AluResult Alu::execute(AluOp op, uint32_t a, uint32_t b) {
     bool overflow = false;
 
     switch (op) {
+        // CPU instructions use nearest-even; alternate modes and IEEE status
+        // are available through fp32's API without changing integer FLAGS.
         case AluOp::FADD:
-        case AluOp::FSUB:
-        case AluOp::FMUL:
-        case AluOp::FDIV: {
-            static_assert(sizeof(float) == sizeof(uint32_t) &&
-                          std::numeric_limits<float>::is_iec559,
-                          "floating point extension requires IEEE 754 binary32");
-            float left, right, value;
-            std::memcpy(&left, &a, sizeof(left));
-            std::memcpy(&right, &b, sizeof(right));
-            switch (op) {
-                case AluOp::FADD: value = left + right; break;
-                case AluOp::FSUB: value = left - right; break;
-                case AluOp::FMUL: value = left * right; break;
-                default: value = left / right; break;
-            }
-            std::memcpy(&res.value, &value, sizeof(value));
+            res.value = fp32::add(a, b).value;
             break;
-        }
+        case AluOp::FSUB:
+            res.value = fp32::subtract(a, b).value;
+            break;
+        case AluOp::FMUL:
+            res.value = fp32::multiply(a, b).value;
+            break;
+        case AluOp::FDIV:
+            res.value = fp32::divide(a, b).value;
+            break;
         case AluOp::ADD:
             res.value = cla_add(a, b, 0, cout, overflow);
             res.flags.c = cout;
