@@ -1,7 +1,9 @@
 # RISC201
 
-A RISC201 simulator in C++17: the full ISA running on a 4-stage pipeline, driven by a
-command line shell with a breakpoint and watchpoint debugger.
+A RISC201 simulator in C++17: the full ISA on a selectable pipeline (sequential,
+4-stage or 6-stage, the last two overlapped with forwarding, hazard stalls and
+branch flushes), driven by a command line shell with a breakpoint and watchpoint
+debugger, plus an animated code and machine state visualizer.
 
 CSC-201 Computer Organization & Architecture, Autumn 2026.
 
@@ -10,14 +12,16 @@ CSC-201 Computer Organization & Architecture, Autumn 2026.
 | Path | Contents |
 |---|---|
 | `isa_spec/isa201.h` | the frozen ISA: opcodes, instruction formats, encoding helpers, exception codes and the types the modules share |
-| `simulator_core/` | CPU, pipeline, CLI and debugger |
-| `alu/` | ALU interface |
-| `control_unit/` | control unit interface |
-| `assembler/` | assembler interface |
-| `disassembler/` | disassembler interface |
-| `memory_safety/` | stack and memory range check interface |
+| `simulator_core/` | CPU, the sequential and overlapped pipelines, CLI and debugger |
+| `alu/` | structural ALU: carry-lookahead adder, Booth multiply, restoring divide |
+| `control_unit/` | microcoded control unit, horizontal ROM and vertical microprogram |
+| `assembler/` | two-pass assembler and the `risc201-asm` CLI |
+| `disassembler/` | disassembler and the `risc201-disasm` CLI |
+| `memory_safety/` | stack and memory range checks, exception strings, ASCII stack view |
+| `visualizer/` | the animated code and machine state view, `risc201-viz` |
+| `eval/` | the pipeline and microcode evaluation harness, `risc201-eval` |
 | `tests/` | unit and integration tests, `tests/programs/` holds the demo programs |
-| `docs/` | ISA specification and design documents |
+| `docs/` | ISA specification, design and evaluation documents |
 
 ## Build
 
@@ -30,27 +34,42 @@ CSC-201 Computer Organization & Architecture, Autumn 2026.
     ./build/risc201-sim tests/programs/loop.hex
 
 Type `help` inside the simulator for the command list, or read `docs/cli.md`.
+`mode` picks the pipeline, `micro` picks the control encoding and `cycles` shows
+the counters.
+
+The visualizer animates a program a cycle at a time and shows the code line, the
+registers, the stack and the pipeline:
+
+    ./build/risc201-viz tests/programs/loop.hex --mode 6stage
+    ./build/risc201-viz tests/programs/recursion.hex --micro vertical
+
+The evaluation harness prints the pipeline and microcode comparison numbers:
+
+    ./build/risc201-eval docs/evaluation_matrix.md
 
 ## Test
 
     cd build && ctest --output-on-failure
 
-## MemorySafety & Eval 
-- **Memory Safety Module (`memory_safety/`)**: Implemented strict bounds checking for `PUSH`/`CALL` (stack overflow) and `POP`/`RET` (stack underflow). Added checks to prevent invalid memory access and accidental writes to the code region.
-- **Exception Framework**: Built `ExceptionTracker` and readable string conversions (`exceptionToString`). Wired the safety module into the CPU pipeline to replace the temporary stub.
-- **CLI Stack Visualizer**: Implemented `renderStackAscii`, an interactive ASCII stack renderer for the CLI (`stack` command). It displays stack memory, current `SP` marker, red warning banners on overflow, and draws `+--- FRAME ---+` boundaries by detecting return addresses.
-- **Test Programs**: Created automated hex exporters for the `loop.hex`, `recursion.hex`, and `stack_fault.hex` demo programs to use during the presentation.
-
-
+Floating-point arithmetic is available as a four-instruction IEEE 754 binary32
+extension (`FADD`, `FSUB`, `FMUL`, `FDIV`). Registers hold raw float bit patterns;
+see `docs/isa_spec.md` and `tests/programs/float_demo.s` for details. The
+extension changes the PDF's frozen ISA and needs team agreement.
 
 ## Status
 
-The simulator core is done: the whole ISA executes on the 4-stage pipeline, exceptions
-are raised and reported, and the CLI and debugger work. The three demo programs in
-`tests/programs/` run end to end, one of them on purpose into a stack overflow.
+The implemented ISA runs on the sequential reference and on the 4-stage and
+6-stage overlapped pipelines, which reach the same machine state as the
+reference (`tests/test_pipeline_hazards.cpp`). The control unit reads either the
+horizontal ROM or the vertical microprogram, and both decode identically
+(`tests/test_microcode.cpp`). Exceptions are raised and reported, the CLI and
+debugger work, the assembler and disassembler round-trip, and the visualizer and
+evaluation harness are in place.
 
-The ALU and control unit are not written yet, so the simulator
-uses the stand-ins in `simulator_core/`. They implement the same interfaces as the real
-modules, so swapping them in is a change in `Cpu` only.
+The real modules are wired into `Cpu`: the structural ALU (`alu/`), the
+microcoded control unit (`control_unit/`), the memory safety checks
+(`memory_safety/`) and the assembler/disassembler. `Cpu` passes them to the
+pipeline by reference, so swapping an implementation is a change in `Cpu` only.
 
-Not started: vertical microcode, the 6-stage pipeline, and the evaluation work.
+The evaluation, the pipeline comparison, the microcode comparison and the
+datapath diagrams live in `docs/`.

@@ -44,6 +44,11 @@ constexpr std::array<uint32_t, 64> buildControlRom() {
   rom[static_cast<size_t>(Opcode::SHR)] = REG_WRITE | packAlu(AluOp::SHR);
   rom[static_cast<size_t>(Opcode::MOV)] = REG_WRITE | packAlu(AluOp::MOV);
   
+  rom[static_cast<size_t>(Opcode::FADD)] = REG_WRITE | packAlu(AluOp::FADD);
+  rom[static_cast<size_t>(Opcode::FSUB)] = REG_WRITE | packAlu(AluOp::FSUB);
+  rom[static_cast<size_t>(Opcode::FMUL)] = REG_WRITE | packAlu(AluOp::FMUL);
+  rom[static_cast<size_t>(Opcode::FDIV)] = REG_WRITE | packAlu(AluOp::FDIV);
+
   // CMP only sets flags, doesnt write to register!
   rom[static_cast<size_t>(Opcode::CMP)] = WRITE_FLAGS | packAlu(AluOp::CMP); 
 

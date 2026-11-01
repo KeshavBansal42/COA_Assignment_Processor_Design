@@ -23,6 +23,7 @@ add_library(risc201_core STATIC
   alu/alu.cpp
   control_unit/control_unit.cpp
   simulator_core/pipeline.cpp
+  simulator_core/cycle_pipeline.cpp
   simulator_core/debugger.cpp
   simulator_core/cli.cpp)
 target_link_libraries(risc201_core PUBLIC risc201_isa risc201_memory_safety)
@@ -49,5 +50,26 @@ add_executable(risc201_disasm disassembler/main.cpp)
 set_target_properties(risc201_disasm PROPERTIES OUTPUT_NAME risc201-disasm)
 target_link_libraries(risc201_disasm PRIVATE risc201_disassembler)
 
+# Evaluation harness: pipeline and microcode comparison numbers.
+add_executable(risc201_eval eval/eval_matrix.cpp)
+set_target_properties(risc201_eval PROPERTIES OUTPUT_NAME risc201-eval)
+target_link_libraries(risc201_eval PRIVATE risc201_core)
+target_compile_definitions(risc201_eval
+  PRIVATE RISC201_PROGRAMS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/programs")
+
+# Animated code and machine state visualizer.
+add_library(risc201_visualizer STATIC
+  visualizer/terminal.cpp
+  visualizer/view.cpp)
+target_link_libraries(risc201_visualizer PUBLIC risc201_core risc201_disassembler)
+
+add_executable(risc201_viz visualizer/main.cpp)
+set_target_properties(risc201_viz PROPERTIES OUTPUT_NAME risc201-viz)
+target_link_libraries(risc201_viz PRIVATE risc201_visualizer risc201_assembler)
+
 enable_testing()
 add_subdirectory(tests)
+
+# The evaluation run doubles as a smoke test that every program still runs in
+# every configuration.
+add_test(NAME evaluation COMMAND risc201_eval)

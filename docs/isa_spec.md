@@ -100,3 +100,24 @@ and tested on its own. Shared types live in `isa_spec/isa201.h`.
 2. The write into the code region rule is a suggestion, drop it if self-modifying code is wanted.
 3. Ask the TA whether deriving RISC201 from an existing RISC design is acceptable for the
    "custom ISA" requirement.
+
+## Floating-point extension
+
+The original 27 instructions above remain unchanged. Four additional R-type
+instructions use general-purpose registers as raw IEEE 754 binary32 bit patterns:
+
+| Opcode | Instruction | Operation |
+|---|---|---|
+| 17 | FADD rd, rs, rt | rd = rs + rt |
+| 18 | FSUB rd, rs, rt | rd = rs - rt |
+| 19 | FMUL rd, rs, rt | rd = rs * rt |
+| 1A | FDIV rd, rs, rt | rd = rs / rt |
+
+These instructions do not modify FLAGS. Arithmetic uses the host's IEEE 754
+single-precision operations and rounding environment; NaN payloads and floating
+exception status are not specified. FDIV by zero follows floating-point rules
+(infinity or NaN), rather than raising the integer DIV_BY_ZERO exception.
+Values can be transferred through memory or constructed as bit patterns with
+integer instructions; there is no float literal or conversion instruction.
+See `tests/programs/float_demo.s` for an example. This extension changes the
+frozen ISA and should be agreed with the team for the assignment.

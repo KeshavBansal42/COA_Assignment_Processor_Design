@@ -206,6 +206,21 @@ void testExceedsCodeLimit() {
   std::remove(hexPath.c_str());
 }
 
+void testWordDisassembly() {
+  using namespace risc201;
+
+  assert(disassemble(encodeR(Opcode::ADD, 1, 2, 3)) == "ADD R1, R2, R3");
+  assert(disassemble(encodeI(Opcode::LDI, 4, 0, 42)) == "LDI R4, 42");
+  assert(disassemble(encodeR(Opcode::CMP, 0, 5, 6)) == "CMP R5, R6");
+  assert(disassemble(encodeI(Opcode::LW, 3, 2, 8)) == "LW R3, 8(R2)");
+  assert(disassemble(encodeJ(Opcode::BNE, -3)) == "BNE -3");
+  assert(disassemble(encodeOpcode(Opcode::RET)) == "RET");
+
+  // An undefined opcode must not throw, it comes back as text.
+  const std::string bad = disassemble(0xFFFFFFFFu);
+  assert(bad.find("illegal") != std::string::npos);
+}
+
 }  // namespace
 
 int main() {
@@ -222,6 +237,8 @@ int main() {
   std::cout << "  [PASS] Missing file error handling\n";
   testExceedsCodeLimit();
   std::cout << "  [PASS] Exceeds code limit error handling\n";
+  testWordDisassembly();
+  std::cout << "  [PASS] Single word disassembly\n";
   std::cout << "All disassembler tests passed successfully!\n";
   return 0;
 }

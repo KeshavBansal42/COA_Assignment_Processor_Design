@@ -1,7 +1,8 @@
 build/
 *.o
 *.a
+*.exe
 .agents
 graphify-out
 compile_commands.json
-docs
+.cache/

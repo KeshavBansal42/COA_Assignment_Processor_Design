@@ -152,8 +152,17 @@ void ExceptionTracker::reset() {
   history_.clear();
 }
 
-// render ascii stack frame to a stream
-void renderStackAscii(std::ostream& out, const uint32_t* memory, uint32_t sp, uint32_t maxDepth) {
+// check if pc is inside code bounds
+ExceptionCode MemorySafety::checkPC(uint32_t pc) {
+  // pc cant go above code limit 0x07FF
+  if (pc > 0x07FF) {
+    return ExceptionCode::PC_OUT_OF_RANGE;
+  }
+  return ExceptionCode::NONE;
+}
+
+// render ascii stack frame
+void renderStackAscii(const uint32_t* memory, uint32_t sp, uint32_t maxDepth) {
   // print warning in red if sp cross danger line
   if (sp < kStackBase) {
     out << "\033[31m*** STACK OVERFLOW DANGER ***\033[0m\n";

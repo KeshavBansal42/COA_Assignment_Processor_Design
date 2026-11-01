@@ -2,6 +2,26 @@ add_executable(test_isa test_isa.cpp)
 target_link_libraries(test_isa PRIVATE risc201_isa)
 add_test(NAME isa COMMAND test_isa)
 
+add_executable(test_alu test_alu.cpp)
+target_link_libraries(test_alu PRIVATE risc201_core)
+add_test(NAME alu COMMAND test_alu)
+
+add_executable(test_memory_checks test_memory_checks.cpp)
+target_link_libraries(test_memory_checks PRIVATE risc201_memory_safety)
+add_test(NAME memory_checks COMMAND test_memory_checks)
+
+add_executable(test_control_unit test_control_unit.cpp)
+target_link_libraries(test_control_unit PRIVATE risc201_core)
+add_test(NAME control_unit COMMAND test_control_unit)
+
+add_executable(test_control_integration test_control_integration.cpp)
+target_link_libraries(test_control_integration PRIVATE risc201_core)
+add_test(NAME control_integration COMMAND test_control_integration)
+
+add_executable(test_microcode test_microcode.cpp)
+target_link_libraries(test_microcode PRIVATE risc201_core)
+add_test(NAME microcode COMMAND test_microcode)
+
 add_executable(test_cpu test_cpu.cpp)
 target_link_libraries(test_cpu PRIVATE risc201_core)
 add_test(NAME cpu COMMAND test_cpu)
@@ -9,6 +29,12 @@ add_test(NAME cpu COMMAND test_cpu)
 add_executable(test_pipeline test_pipeline.cpp)
 target_link_libraries(test_pipeline PRIVATE risc201_core)
 add_test(NAME pipeline COMMAND test_pipeline)
+
+add_executable(test_pipeline_hazards test_pipeline_hazards.cpp)
+target_link_libraries(test_pipeline_hazards PRIVATE risc201_core)
+target_compile_definitions(test_pipeline_hazards
+  PRIVATE RISC201_PROGRAMS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/programs")
+add_test(NAME pipeline_hazards COMMAND test_pipeline_hazards)
 
 add_executable(test_full_isa test_full_isa.cpp)
 target_link_libraries(test_full_isa PRIVATE risc201_core)
@@ -41,3 +67,11 @@ add_executable(test_disassembler test_disassembler.cpp)
 target_link_libraries(test_disassembler PRIVATE risc201_disassembler risc201_assembler)
 add_test(NAME disassembler COMMAND test_disassembler)
 
+add_executable(test_visualizer test_visualizer.cpp)
+target_link_libraries(test_visualizer PRIVATE risc201_visualizer)
+add_test(NAME visualizer COMMAND test_visualizer)
+
+
+add_executable(test_float test_float.cpp)
+target_link_libraries(test_float PRIVATE risc201_core risc201_assembler risc201_disassembler)
+add_test(NAME float COMMAND test_float)
