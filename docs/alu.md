@@ -36,7 +36,7 @@ operations otherwise return NONE.
 
 ### Hierarchical carry-lookahead addition
 
-`cla_add` implements Arithmetic-1's slides 16-25: bit generate/propagate,
+`detail::claAdd` implements Arithmetic-1's slides 16-25: bit generate/propagate,
 bottom-up groups of 2/4/8/16/32 bits, top-down carry distribution, then sixteen
 2-bit sum blocks. SUB/CMP reuse it as a + ~b + 1. Signed overflow is the XOR
 of the carry into and out of bit 31. The tree phases are not simulated cycles.
@@ -48,10 +48,11 @@ Q_minus_1=0. Repeat 32 times: pair 01 adds M, pair 10 subtracts M, pairs
 00/11 do no arithmetic, then arithmetic-right-shift the combined registers.
 
 A and the sign-extended M are 33 bits so that negating INT32_MIN is
-representable. Each addition/subtraction uses the existing 32-bit CLA plus
-the extra high-bit equation. After the iterations, all 33 bits of A must
-equal the sign extension of Q for the low result to fit in signed 32 bits.
-Thus INT32_MIN * 1 clears V and INT32_MIN * -1 sets V.
+representable. Each addition/subtraction uses shared `addSubtract33`: the
+existing 32-bit CLA plus the extra high-bit equation. `detail::boothMultiply`
+retains the complete 64-bit product, discarding only the redundant guard sign
+bit. Integer MUL returns its low word and checks that the high word extends
+the low word's sign. Thus INT32_MIN * 1 clears V and INT32_MIN * -1 sets V.
 
 ### Unsigned restoring division
 
@@ -60,15 +61,35 @@ Q=dividend, M=divisor; repeat 32 times, shifting A/Q left, subtracting M,
 testing the trial remainder, and restoring A if negative. A failed trial
 leaves the new quotient bit zero; a successful trial sets it to one.
 
-An int64 accumulator safely holds the shifted partial remainder and negative
-trial values across the full unsigned 32-bit operand range. On success the
+A uint64 container holds the 33-bit partial remainder/trial word. Shared
+`detail::restoringStep` subtracts through the CLA extension, tests bit 32 as the
+trial sign and adds the divisor back through the same extension if negative.
+This safely handles the full unsigned 32-bit operand range. On success the
 internal result retains quotient Q and remainder A, satisfying
 dividend = quotient * divisor + remainder and 0 <= remainder < divisor.
 The internal helper declared in `alu/alu.hpp` allows direct verification;
 the public ALU and processor DIV still expose only the quotient. On division
 by zero the internal helper returns zero quotient/remainder and DIV_BY_ZERO.
-The divider uses host integer subtraction/addition to model its arithmetic;
-it does not currently reuse the CLA.
+Both integer and floating-point division use this same CLA-backed restoring step.
+
+### Shared integer and floating-point datapath
+
+The helpers live in `alu.hpp`/`alu.cpp` under namespace detail; no extra header
+is required. They compute values without touching CPU FLAGS or FP status.
+
+| Primitive | Users |
+|---|---|
+| claAdd / add32 / subtract32 | integer ADD/SUB/CMP, FP significands, rounding increment |
+| addSigned32 / subtractSigned32 | FP exponent unbiasing, alignment, normalization, rebiasing |
+| addSubtract33 | Booth accumulator and restoring divider trial/restoration |
+| boothMultiply | integer MUL low word/overflow and FP MUL complete 48-bit significand product |
+| restoringStep | integer quotient bits and FP fractional quotient bits |
+
+These are shared circuit algorithms, not recursive calls to Alu::execute.
+Bit shifts, Boolean operations, comparisons, register-field extraction and loop
+indices remain ordinary C++ modeling operations. The model does not claim that
+every C++ operation or host instruction is gate simulated, or that a single
+physical CLA's resource contention is scheduled across clock cycles.
 
 ## Architectural flag commitment
 
@@ -115,14 +136,19 @@ packing steps:
 
 - ADD/SUB align exponents with a right shift that retains discarded bits in a
   sticky bit. Same signs add magnitudes; different signs subtract magnitudes.
+  The 27-bit extended significands and 28-bit sum fit in the shared 32-bit CLA.
   The result is normalized before rounding.
-- MUL computes an exact 48-bit significand product using 24 shift/add steps,
-  adds unbiased exponents, and XORs signs.
-- DIV subtracts unbiased exponents and generates quotient bits with binary long
-  division (shift, compare, subtract). A nonzero remainder contributes sticky.
+- MUL uses the shared full-width Booth multiplier for the exact 48-bit
+  significand product, CLA-adds unbiased exponents, and XORs signs. The positive
+  24-bit significands fit safely within the signed multiplier's operand range.
+- DIV CLA-subtracts unbiased exponents and generates 27 quotient bits using the
+  same restoring step as integer DIV. The different quotient construction retains
+  fractional precision; calling integer DIV directly would lose it.
+  A nonzero remainder contributes sticky.
   This is the baseline division algorithm, not Goldschmidt or Newton-Raphson.
 - A shared round/pack stage keeps guard, round and sticky information, supports
-  gradual underflow, rounds once, and handles a carry from rounding.
+  gradual underflow, rounds once using a CLA-based increment, and handles a carry
+  from rounding. Exponent changes throughout the FP path also use the CLA.
 
 ### Rounding modes
 
@@ -181,6 +207,8 @@ comparison flags, multiplication symmetry, quotient/remainder invariants,
 logic flags, ignored unary operands, and shift-count masking. Deterministic
 random inputs include both full-width and small divisors. Reference arithmetic
 uses wider host integers independently of the implemented algorithms.
+The suite additionally checks all 64 product bits, 33-bit arithmetic boundaries,
+signed exponent arithmetic, restoring-step branches, and maximum FP significands.
 
 All checks remain enabled under NDEBUG. Run the ALU
 directly if another module prevents building the full core:

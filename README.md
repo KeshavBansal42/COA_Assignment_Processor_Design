@@ -53,8 +53,9 @@ The evaluation harness prints the pipeline and microcode comparison numbers:
 
 Floating-point arithmetic is available as a four-instruction IEEE 754 binary32
 extension (`FADD`, `FSUB`, `FMUL`, `FDIV`). Registers hold raw float bit patterns;
-the implementation handles arithmetic, rounding and special values using integer
-operations. CPU instructions use nearest-even; the FP module exposes all four
+the implementation handles arithmetic, rounding and special values using shared
+CLA, full-width Booth and restoring-division primitives. CPU instructions use
+nearest-even; the FP module exposes all four
 rounding modes and separate arithmetic status. See `docs/alu.md`, `docs/isa_spec.md`
 and `tests/programs/float_demo.s` for details. The
 extension changes the PDF's frozen ISA and needs team agreement.

@@ -199,6 +199,8 @@ void check_arithmetic(risc201::Alu& alu, uint32_t a, uint32_t b) {
     require((cmp.flags.n != cmp.flags.v) == (sa < sb), "signed branch condition", a, b);
 
     const int64_t product = sa * sb;
+    require(detail::boothMultiply(a, b) == static_cast<uint64_t>(product),
+            "full 64-bit Booth product", a, b);
     const auto mul = alu.execute(AluOp::MUL, a, b);
     check_result(mul, static_cast<uint32_t>(product), false, signed_overflow(product),
                  "MUL", a, b);
@@ -253,6 +255,36 @@ void test_arithmetic_regressions(risc201::Alu& alu) {
                  "restoring remainders and 20,000 random operand pairs\n";
 }
 
+void test_shared_datapath() {
+    using namespace risc201;
+    constexpr uint64_t mask = (uint64_t{1} << 33) - 1;
+    const uint64_t words[] = {0, 1, 0x7fffffff, 0x80000000, 0xffffffff,
+                              0x100000000, 0x1ffffffff};
+    for (auto a : words) for (auto b : words) {
+        CHECK(detail::addSubtract33(a, b, false) == ((a + b) & mask));
+        CHECK(detail::addSubtract33(a, b, true) == ((a - b) & mask));
+    }
+    const int32_t exponents[] = {-512, -149, -126, -1, 0, 1, 127, 512};
+    for (auto a : exponents) for (auto b : exponents) {
+        CHECK(detail::addSigned32(a, b) == a + b);
+        CHECK(detail::subtractSigned32(a, b) == a - b);
+    }
+    const uint32_t divisors[] = {1, 2, 3, 0x00800000, 0x00ffffff,
+                                 0x7fffffff, 0x80000000, 0xffffffff};
+    for (auto d : divisors) {
+        const uint64_t partials[] = {0, uint64_t{d} - 1, d, uint64_t{d} * 2 - 1};
+        for (auto partial : partials) {
+            const auto step = detail::restoringStep(partial, d);
+            CHECK(step.quotientBit == (partial >= d));
+            CHECK(step.remainder == (partial >= d ? partial - d : partial));
+            CHECK(step.remainder < d);
+        }
+    }
+    CHECK(detail::boothMultiply(0x00ffffff, 0x00ffffff) == 0xfffffe000001ULL);
+    std::cout << "[PASS] Shared CLA extensions, exponent arithmetic, full-width "
+                 "significand product and restoring steps\n";
+}
+
 void test_logic_and_shift_regressions(risc201::Alu& alu) {
     using namespace risc201;
     const uint32_t values[] = {0, 1, 0x7fffffffu, 0x80000000u, 0xffffffffu, 0xaaaaaaaa};
@@ -287,6 +319,7 @@ int main() {
     test_division(alu);
     test_bitwise_and_shifts(alu);
     test_arithmetic_regressions(alu);
+    test_shared_datapath();
     test_logic_and_shift_regressions(alu);
 
     std::cout << "\nAll ALU hardware algorithm tests PASSED successfully!\n";
