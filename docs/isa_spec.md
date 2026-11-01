@@ -34,13 +34,13 @@ Field positions: op 31-26, rd 25-22, rs 21-18, rt 17-14, imm 17-0, offset 25-0.
 | 02 | ADD rd, rs, rt | R | rd = rs + rt, sets Z N C V |
 | 03 | SUB rd, rs, rt | R | rd = rs - rt, sets Z N C V |
 | 04 | MUL rd, rs, rt | R | rd = rs * rt (low 32 bits), sets Z N C V |
-| 05 | DIV rd, rs, rt | R | rd = rs / rt, DIV_BY_ZERO exception if rt = 0 |
+| 05 | DIV rd, rs, rt | R | rd = unsigned rs / unsigned rt, DIV_BY_ZERO exception if rt = 0 |
 | 06 | AND rd, rs, rt | R | bitwise AND, sets Z N |
 | 07 | OR rd, rs, rt | R | bitwise OR, sets Z N |
 | 08 | XOR rd, rs, rt | R | bitwise XOR, sets Z N |
 | 09 | NOT rd, rs | R | rd = ~rs, sets Z N |
 | 0A | SHL rd, rs, rt | R | rd = rs shifted left by rt |
-| 0B | SHR rd, rs, rt | R | rd = rs shifted right by rt |
+| 0B | SHR rd, rs, rt | R | rd = rs logically shifted right by (rt & 31) |
 | 0C | MOV rd, rs | R | rd = rs |
 | 0D | CMP rs, rt | R | computes rs - rt, sets flags only |
 | 10 | ADDI rd, rs, imm | I | rd = rs + imm, sets Z N C V |
@@ -56,6 +56,23 @@ Field positions: op 31-26, rd 25-22, rs 21-18, rt 17-14, imm 17-0, offset 25-0.
 | 23 | BLT off | J | branch if N != V |
 | 24 | BGE off | J | branch if N = V |
 | 25 | CALL off | J | push PC+1, then PC = PC + 1 + off |
+
+## Implemented integer arithmetic details
+
+These clarify existing behavior without changing instruction encodings. See
+[ALU implementation and contract](alu.md) for algorithms and verification.
+
+- ADD/SUB/ADDI wrap modulo 2^32. V reports signed overflow, not an exception.
+- SUB/CMP set C on no unsigned borrow (rs >= rt).
+- MUL uses signed two's-complement operands, returns the low 32 product bits,
+  clears C, and sets V when the full signed product does not fit in 32 bits.
+- DIV is unsigned and returns only the quotient; its internal remainder is not
+  an architectural result. Successful DIV preserves FLAGS.
+- SHL/SHR mask the shift count with 31 and preserve FLAGS. SHR zero-fills.
+- AND/OR/XOR/NOT currently set Z/N and clear C/V. The original "sets Z N"
+  wording above left C/V unspecified; this records the current control policy.
+  Any change to preservation requires team agreement.
+- MOV, LDI, LW, and SW preserve FLAGS. CMP updates FLAGS without writing rd.
 
 ## Memory map (4096 words)
 

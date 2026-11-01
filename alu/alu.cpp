@@ -1,4 +1,5 @@
 #include "alu/alu.hpp"
+#include "alu/integer_division.hpp"
 #include <cstring>
 #include <limits>
 
@@ -168,44 +169,51 @@ uint32_t Alu::cla_add(uint32_t a, uint32_t b, uint32_t c_in, bool& cout, bool& o
 }
 
 uint32_t Alu::booth_mul(uint32_t a, uint32_t b, bool& overflow) {
-    uint32_t M = a;
+    // A and M need 33 bits: -INT32_MIN cannot fit in a signed 32-bit word.
+    constexpr uint64_t mask = (uint64_t{1} << 33) - 1;
+    constexpr uint64_t sign = uint64_t{1} << 32;
+    const uint64_t M = uint64_t{a} | ((a & 0x80000000u) ? sign : 0);
     uint32_t Q = b;
-    uint32_t A = 0;
+    uint64_t A = 0;
     uint32_t Q_minus_1 = 0;
 
     for (int i = 0; i < 32; i++) {
         uint32_t Q_0 = Q & 1;
-        bool dummy_c, dummy_v; 
-        
-        if (Q_0 == 1 && Q_minus_1 == 0) {
-            A = cla_add(A, ~M, 1, dummy_c, dummy_v); 
-        } else if (Q_0 == 0 && Q_minus_1 == 1) {
-            A = cla_add(A, M, 0, dummy_c, dummy_v);  
+        if (Q_0 != Q_minus_1) {
+            const bool subtract = Q_0 == 1;
+            const uint64_t operand = subtract ? (~M & mask) : M;
+            bool carry, unused_overflow;
+            const uint32_t low = cla_add(static_cast<uint32_t>(A),
+                                        static_cast<uint32_t>(operand),
+                                        subtract ? 1u : 0u, carry, unused_overflow);
+            // Extend the existing CLA with one full-adder bit, rather than
+            // replacing Booth's arithmetic with a host multiplication.
+            const uint64_t high = ((A >> 32) ^ (operand >> 32) ^ uint64_t{carry}) & 1;
+            A = (high << 32) | low;
         }
 
         Q_minus_1 = Q & 1;
-        uint32_t A_lsb = A & 1;
-        uint32_t A_msb = A & 0x80000000; 
+        uint32_t A_lsb = static_cast<uint32_t>(A & 1);
         Q = (Q >> 1) | (A_lsb << 31);
-        A = (A >> 1) | A_msb;
+        A = (A >> 1) | (A & sign);
     }
 
-    // Overflow check: in 64-bit product [A:Q], A must be sign extension of Q
+    // In the widened product [A:Q], all 33 upper bits must extend Q's sign.
     uint32_t q_sign = (Q >> 31) & 1;
-    uint32_t expected_A = q_sign ? 0xFFFFFFFFu : 0u;
+    uint64_t expected_A = q_sign ? mask : 0;
     overflow = (A != expected_A);
 
     return Q; 
 }
 
-uint32_t Alu::unsigned_div(uint32_t dividend, uint32_t divisor, ExceptionCode& exc) {
+detail::UnsignedDivisionResult detail::restoringDivide(uint32_t dividend, uint32_t divisor) {
     if (divisor == 0) {
-        exc = ExceptionCode::DIV_BY_ZERO;
-        return 0;
+        return {0, 0, ExceptionCode::DIV_BY_ZERO};
     }
-    // 33-bit / 64-bit accumulator A to hold bits shifted from Q without losing the MSB
-    uint64_t A = 0;
-    uint32_t M = divisor;
+    // A holds the shifted partial remainder and a potentially negative trial
+    // subtraction. int64_t safely represents both for every uint32_t divisor.
+    int64_t A = 0;
+    const int64_t M = divisor;
     uint32_t Q = dividend;
 
     for (int i = 0; i < 32; i++) {
@@ -213,14 +221,21 @@ uint32_t Alu::unsigned_div(uint32_t dividend, uint32_t divisor, ExceptionCode& e
         A = (A << 1) | Q_msb;
         Q = (Q << 1);
 
-        if (A >= M) {
-            A -= M;
-            Q |= 1;
+        A -= M;
+        if (A < 0) {
+            // Failed trial: restore A and leave the new quotient bit at zero.
+            A += M;
         } else {
-            Q &= ~1u;
+            Q |= 1u;
         }
     }
-    return Q; 
+    return {Q, static_cast<uint32_t>(A), ExceptionCode::NONE};
+}
+
+uint32_t Alu::unsigned_div(uint32_t dividend, uint32_t divisor, ExceptionCode& exc) {
+    const auto result = detail::restoringDivide(dividend, divisor);
+    exc = result.exception;
+    return result.quotient;
 }
 
 AluResult Alu::execute(AluOp op, uint32_t a, uint32_t b) {

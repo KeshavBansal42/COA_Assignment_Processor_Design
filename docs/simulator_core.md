@@ -85,9 +85,13 @@ The ALU, control unit and safety module live in their own folders, `alu/`,
 ## Choices the ISA leaves open
 
 - `SHR` is a logical shift, not an arithmetic one.
-- Division is signed, to match the signed `BLT` and `BGE` comparisons.
+- DIV is unsigned restoring division; BLT/BGE independently use signed comparison
+  flags. See [ALU contract](alu.md) for algorithms, flags, and boundary behavior.
 - `MUL` reports signed overflow in V and leaves C clear, since a low-32-bit product has
   no carry.
 - Shift amounts are taken modulo 32.
+- Logic instructions commit Z/N and clear C/V. DIV, shifts, MOV, LDI, loads/stores,
+  and floating-point instructions preserve architectural FLAGS. This records the
+  current control policy; changing it needs team agreement.
 - A store into the code region is rejected, as `docs/isa_spec.md` suggests. Dropping
   that rule is a one line change in the safety module if self-modifying code is wanted.

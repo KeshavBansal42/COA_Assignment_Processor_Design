@@ -7,7 +7,9 @@ namespace risc201 {
 
 class Alu {
 public:
-    // Applies op to a and b. NOT and MOV only look at a.
+    // Applies op to a and b. NOT and MOV only look at a. MUL is signed;
+    // DIV is unsigned. Returned flags are committed only when control requests
+    // writeFlags. See docs/alu.md for the complete arithmetic contract.
     AluResult execute(AluOp op, uint32_t a, uint32_t b);
 
 private:
