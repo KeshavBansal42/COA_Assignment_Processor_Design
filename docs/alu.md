@@ -64,7 +64,7 @@ An int64 accumulator safely holds the shifted partial remainder and negative
 trial values across the full unsigned 32-bit operand range. On success the
 internal result retains quotient Q and remainder A, satisfying
 dividend = quotient * divisor + remainder and 0 <= remainder < divisor.
-The internal helper in `alu/integer_division.hpp` allows direct verification;
+The internal helper declared in `alu/alu.hpp` allows direct verification;
 the public ALU and processor DIV still expose only the quotient. On division
 by zero the internal helper returns zero quotient/remainder and DIV_BY_ZERO.
 The divider uses host integer subtraction/addition to model its arithmetic;

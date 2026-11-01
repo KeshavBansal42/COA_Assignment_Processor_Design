@@ -5,6 +5,20 @@
 
 namespace risc201 {
 
+namespace detail {
+
+// Internal algorithm result for direct arithmetic verification.
+// The processor's DIV instruction still returns only the quotient.
+struct UnsignedDivisionResult {
+    uint32_t quotient;
+    uint32_t remainder;
+    ExceptionCode exception;
+};
+
+UnsignedDivisionResult restoringDivide(uint32_t dividend, uint32_t divisor);
+
+} // namespace detail
+
 class Alu {
 public:
     // Applies op to a and b. NOT and MOV only look at a. MUL is signed;
