@@ -99,6 +99,9 @@ class CyclePipeline {
   bool empty() const;
   bool finished() const { return done_; }
 
+  // The address the next fetch will read.
+  uint32_t nextFetchPc() const { return fetchPc_; }
+
   uint64_t cycles() const { return cycles_; }
   uint64_t retired() const { return retired_; }
   uint64_t stalls() const { return stalls_; }

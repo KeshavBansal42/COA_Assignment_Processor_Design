@@ -6,6 +6,7 @@
 //   Vertical:   narrow encoded micro operations walked by a sequencer.
 
 #include <cstdint>
+#include <vector>
 
 #include "isa_spec/isa201.h"
 
@@ -15,6 +16,16 @@ namespace risc201 {
 enum class ControlMode {
   Horizontal,
   Vertical,
+};
+
+// One word of control memory visited while decoding an instruction, exposed so
+// the CLI can show the microPC stepping through the control store.
+struct MicroTraceEntry {
+  uint32_t microPc = 0;
+  uint32_t word = 0;
+  const char *operation = "";
+  const char *aluOperation = "";
+  bool end = false;
 };
 
 class ControlUnit {
@@ -27,6 +38,11 @@ class ControlUnit {
 
   // How many micro operations the last decode walked. One for horizontal.
   uint32_t lastMicroOpCount() const;
+
+  // The control memory words an instruction walks, in execution order.
+  // Horizontal mode visits the single wide ROM row; vertical mode walks the
+  // microprogram until END. Does not change the decode state.
+  std::vector<MicroTraceEntry> trace(uint32_t instr) const;
 
   void setMode(ControlMode mode);
   ControlMode mode() const;

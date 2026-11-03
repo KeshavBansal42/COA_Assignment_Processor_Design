@@ -16,12 +16,13 @@ From `docs/evaluation_matrix.md` (horizontal microcode rows):
 
 | Program | Sequential | 4 stage | 6 stage |
 |---|---|---|---|
-| loop | 44 (1.00 CPI) | 65 (1.51) | 95 (2.21) |
-| recursion | 40 (1.00) | 62 (1.59) | 94 (2.41) |
+| loop | 44 (1.00 CPI) | 65 (1.48) | 95 (2.16) |
+| recursion | 40 (1.00) | 62 (1.55) | 94 (2.35) |
 | stack_fault | 1026 (1.00) | 2052 (2.00) | 4101 (4.00) |
-| hazard_raw | 7 (1.00) | 9 (1.50) | 11 (1.83) |
-| hazard_load_use | 6 (1.00) | 10 (2.00) | 13 (2.60) |
-| hazard_branch | 6 (1.00) | 10 (2.00) | 15 (3.00) |
+| stack_macros | 12 (1.00) | 21 (1.75) | 30 (2.50) |
+| hazard_raw | 7 (1.00) | 9 (1.29) | 11 (1.57) |
+| hazard_load_use | 6 (1.00) | 10 (1.67) | 13 (2.17) |
+| hazard_branch | 6 (1.00) | 10 (1.67) | 15 (2.50) |
 
 ## Where the extra cycles go
 
@@ -30,6 +31,7 @@ From `docs/evaluation_matrix.md` (horizontal microcode rows):
 | loop | 10 / 9 | 20 / 18 |
 | recursion | 9 / 11 | 18 / 22 |
 | stack_fault | 0 / 1024 | 0 / 2048 |
+| stack_macros | 7 / 0 | 14 / 0 |
 | hazard_raw | 0 / 0 (4 forwards) | 0 / 0 (7 forwards) |
 | hazard_load_use | 2 / 0 | 3 / 0 |
 | hazard_branch | 1 / 1 | 2 / 2 |

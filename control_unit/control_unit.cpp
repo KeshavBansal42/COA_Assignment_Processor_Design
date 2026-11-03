@@ -12,6 +12,47 @@ uint8_t extractOpcode(uint32_t instr) {
   return static_cast<uint8_t>((instr >> 26) & 0x3F);
 }
 
+const char* microOpName(MicroOp op) {
+  switch (op) {
+    case MicroOp::END:       return "END";
+    case MicroOp::ALU_REG:   return "ALU_REG";
+    case MicroOp::ALU_IMM:   return "ALU_IMM";
+    case MicroOp::REG_WRITE: return "REG_WRITE";
+    case MicroOp::FLAGS:     return "FLAGS";
+    case MicroOp::LOAD:      return "LOAD";
+    case MicroOp::STORE:     return "STORE";
+    case MicroOp::PUSH:      return "PUSH";
+    case MicroOp::POP:       return "POP";
+    case MicroOp::RET:       return "RET";
+    case MicroOp::JUMP:      return "JUMP";
+    case MicroOp::BRANCH:    return "BRANCH";
+    case MicroOp::HALT:      return "HALT";
+  }
+  return "?";
+}
+
+const char* aluOpName(AluOp op) {
+  switch (op) {
+    case AluOp::ADD:  return "ADD";
+    case AluOp::SUB:  return "SUB";
+    case AluOp::MUL:  return "MUL";
+    case AluOp::DIV:  return "DIV";
+    case AluOp::AND:  return "AND";
+    case AluOp::OR:   return "OR";
+    case AluOp::XOR:  return "XOR";
+    case AluOp::NOT:  return "NOT";
+    case AluOp::SHL:  return "SHL";
+    case AluOp::SHR:  return "SHR";
+    case AluOp::MOV:  return "MOV";
+    case AluOp::CMP:  return "CMP";
+    case AluOp::FADD: return "FADD";
+    case AluOp::FSUB: return "FSUB";
+    case AluOp::FMUL: return "FMUL";
+    case AluOp::FDIV: return "FDIV";
+  }
+  return "?";
+}
+
 }  // namespace
 
 ControlSignals ControlUnit::decode(uint32_t instr) {
@@ -147,6 +188,58 @@ ControlSignals ControlUnit::decodeVertical(uint32_t instr) {
 
   microOpCount_ = count;
   return signals;
+}
+
+std::vector<MicroTraceEntry> ControlUnit::trace(uint32_t instr) const {
+  std::vector<MicroTraceEntry> steps;
+  const uint8_t op = extractOpcode(instr);
+
+  if (mode_ == ControlMode::Horizontal) {
+    using namespace MicrocodeBits;
+    const uint32_t word = CONTROL_ROM[op];
+    MicroTraceEntry entry;
+    entry.microPc = op;
+    entry.word = word;
+    entry.operation = "HORIZONTAL";
+    entry.aluOperation = aluOpName(static_cast<AluOp>((word >> ALU_OP_SHIFT) & ALU_OP_MASK));
+    entry.end = true;
+    steps.push_back(entry);
+    return steps;
+  }
+
+  const uint16_t start = kMicroProgram.start[op];
+  if (start == kNoMicroProgram) {
+    MicroTraceEntry entry;
+    entry.microPc = 0;
+    entry.word = 0;
+    entry.operation = "NO_MICROPROGRAM";
+    entry.end = true;
+    steps.push_back(entry);
+    return steps;
+  }
+
+  std::size_t index = start;
+  for (;;) {
+    const uint16_t microword = kMicroProgram.words[index];
+    const MicroOp micro = microOpOf(microword);
+
+    MicroTraceEntry entry;
+    entry.microPc = static_cast<uint32_t>(index);
+    entry.word = microword;
+    entry.operation = microOpName(micro);
+    entry.aluOperation = (micro == MicroOp::ALU_REG || micro == MicroOp::ALU_IMM)
+                              ? aluOpName(microAluOf(microword))
+                              : "";
+    entry.end = micro == MicroOp::END;
+    steps.push_back(entry);
+
+    if (micro == MicroOp::END) {
+      break;
+    }
+    ++index;
+  }
+
+  return steps;
 }
 
 uint32_t ControlUnit::getMicroPC() const { return microPc_; }

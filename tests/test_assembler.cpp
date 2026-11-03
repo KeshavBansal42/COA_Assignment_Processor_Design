@@ -180,6 +180,83 @@ void testForwardAndBackwardCalls() {
   assert(program[2] == risc201::encodeI(risc201::Opcode::RET, 0, 0, 0));
 }
 
+void testStackMacroExpansion() {
+  const std::string path = "test_stack_macros.s";
+  const std::string src =
+      "; full-descending stack sequences expressed as preprocessor macros\n"
+      ".macro SAVE a, b\n"
+      "  PUSH \\a\n"
+      "  PUSH \\b\n"
+      ".endmacro\n"
+      ".macro RESTORE(a, b)\n"
+      "  POP \\b\n"
+      "  POP \\1\n"
+      ".endmacro\n"
+      "LDI R1, 7\n"
+      "LDI R2, 9\n"
+      "SAVE R1, R2\n"
+      "RESTORE R1, R2\n"
+      "HALT\n";
+
+  writeTempFile(path, src);
+
+  std::vector<uint32_t> program;
+  risc201::assemble(path, program);
+  assert(program.size() == 7);
+
+  assert(program[0] == risc201::encodeI(risc201::Opcode::LDI, 1, 0, 7));
+  assert(program[1] == risc201::encodeI(risc201::Opcode::LDI, 2, 0, 9));
+  assert(program[2] == risc201::encodeI(risc201::Opcode::PUSH, 1, 0, 0));
+  assert(program[3] == risc201::encodeI(risc201::Opcode::PUSH, 2, 0, 0));
+  assert(program[4] == risc201::encodeI(risc201::Opcode::POP, 2, 0, 0));
+  assert(program[5] == risc201::encodeI(risc201::Opcode::POP, 1, 0, 0));
+  assert(program[6] == risc201::encodeOpcode(risc201::Opcode::HALT));
+}
+
+void testMacroErrors() {
+  // Wrong argument count
+  {
+    const std::string path = "test_macro_args.s";
+    writeTempFile(path, ".macro SAVE a, b\n PUSH \\a\n.endmacro\nSAVE R1\n");
+    bool threw = false;
+    try {
+      risc201::assemble(path);
+    } catch (const std::runtime_error& e) {
+      threw = true;
+      assert(std::string(e.what()).find("expects 2 argument") != std::string::npos);
+    }
+    assert(threw);
+  }
+
+  // Unterminated definition
+  {
+    const std::string path = "test_macro_open.s";
+    writeTempFile(path, ".macro SAVE a\n PUSH \\a\n");
+    bool threw = false;
+    try {
+      risc201::assemble(path);
+    } catch (const std::runtime_error& e) {
+      threw = true;
+      assert(std::string(e.what()).find("missing its .endmacro") != std::string::npos);
+    }
+    assert(threw);
+  }
+
+  // Unknown parameter in the body
+  {
+    const std::string path = "test_macro_param.s";
+    writeTempFile(path, ".macro SAVE a\n PUSH \\b\n.endmacro\nSAVE R1\n");
+    bool threw = false;
+    try {
+      risc201::assemble(path);
+    } catch (const std::runtime_error& e) {
+      threw = true;
+      assert(std::string(e.what()).find("unknown macro parameter") != std::string::npos);
+    }
+    assert(threw);
+  }
+}
+
 void testErrorHandling() {
   // Undefined symbol
   {
@@ -294,6 +371,11 @@ void cleanTempFiles() {
   std::remove("test_numeric_jump.s");
   std::remove("test_bare_mem.s");
   std::remove("test_reg_oob.s");
+  std::remove("test_stack_macros.s");
+  std::remove("test_stack_macros.hex");
+  std::remove("test_macro_args.s");
+  std::remove("test_macro_open.s");
+  std::remove("test_macro_param.s");
 }
 
 }  // namespace
@@ -304,6 +386,8 @@ int main() {
   testStrictUppercaseCasing();
   testLabelsStandalone();
   testForwardAndBackwardCalls();
+  testStackMacroExpansion();
+  testMacroErrors();
   testErrorHandling();
   cleanTempFiles();
   std::cout << "All assembler unit tests passed!\n";

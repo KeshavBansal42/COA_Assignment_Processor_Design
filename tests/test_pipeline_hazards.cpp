@@ -75,11 +75,20 @@ MachineState run(const std::vector<uint32_t>& program, PipelineMode mode) {
   return capture(cpu);
 }
 
+uint64_t runInstructions(const std::vector<uint32_t>& program, PipelineMode mode) {
+  Cpu cpu;
+  cpu.load(program);
+  cpu.setPipelineMode(mode);
+  cpu.run();
+  return cpu.instructions();
+}
+
 }  // namespace
 
 int main() {
-  const char* programs[] = {"loop.hex",        "recursion.hex", "stack_fault.hex",
-                            "hazard_raw.hex",  "hazard_load_use.hex", "hazard_branch.hex"};
+  const char* programs[] = {"loop.hex",         "recursion.hex",       "stack_fault.hex",
+                            "stack_macros.hex", "hazard_raw.hex",      "hazard_load_use.hex",
+                            "hazard_branch.hex"};
 
   int mismatches = 0;
   for (const char* name : programs) {
@@ -92,6 +101,20 @@ int main() {
       std::cout << name << " " << pipelineModeName(mode) << (equal ? " matches" : " DIFFERS")
                 << "\n";
       if (!equal) {
+        ++mismatches;
+      }
+    }
+  }
+
+  // The retired instruction total has to agree across all three executors.
+  for (const char* name : programs) {
+    const std::vector<uint32_t> program = loadProgram(name);
+    const uint64_t sequential = runInstructions(program, PipelineMode::Sequential);
+    for (PipelineMode mode : {PipelineMode::FourStage, PipelineMode::SixStage}) {
+      const uint64_t overlapped = runInstructions(program, mode);
+      std::cout << name << " " << pipelineModeName(mode) << " instructions "
+                << overlapped << " vs sequential " << sequential << "\n";
+      if (overlapped != sequential) {
         ++mismatches;
       }
     }

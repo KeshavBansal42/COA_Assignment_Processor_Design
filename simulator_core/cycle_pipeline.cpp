@@ -503,6 +503,9 @@ void CyclePipeline::cycle() {
     done_ = true;
     cpu_.setPc(stopPc_);
     if (stopHalt_) {
+      // HALT never reaches write back, but it does complete, so count it so
+      // the retired total matches the sequential reference.
+      ++retired_;
       cpu_.setHalted(true);
     } else if (stopException_ != ExceptionCode::NONE) {
       cpu_.setException(stopException_);

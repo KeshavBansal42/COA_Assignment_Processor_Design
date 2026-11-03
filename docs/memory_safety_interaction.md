@@ -3,11 +3,11 @@
 This document outlines exactly how, when, and why Keshav's Simulator Core talks to your Memory Safety module, and how your code controls the fate of the CPU.
 
 ## 1. The Core Workflow (How they communicate)
-Your memory safety module acts as a **gatekeeper**. The CPU Pipeline is not allowed to touch memory or the stack without asking your module for permission first. 
+Your memory safety module acts as a **gatekeeper**. Neither the sequential `Pipeline` nor the overlapped `CyclePipeline` is allowed to touch memory or the stack without asking your module for permission first.
 
 The workflow always looks like this:
-1. Keshav's `Pipeline` calculates a memory address or stack pointer.
-2. The `Pipeline` pauses and calls a function in your `MemorySafetyImpl` class.
+1. The executable stage calculates a memory address or stack pointer.
+2. The pipeline pauses and calls a function in your `MemorySafetyImpl` class.
 3. Your code evaluates the address and returns an `ExceptionCode`.
 4. If your code returns `ExceptionCode::NONE`, the `Pipeline` proceeds with the operation.
 5. If your code returns any other error (e.g., `STACK_OVERFLOW`), the `Pipeline` immediately **aborts the operation**, sets the CPU's internal exception state to your error, and permanently halts the processor.
@@ -39,7 +39,7 @@ Whenever the CPU attempts to Load Word (read) or Store Word (write) to general m
   * **Safe:** If the address is safe, you return `ExceptionCode::NONE`.
 
 ### C. Program Counter Fetch (`checkPC`)
-*Note on architecture:* We wrote `checkPC()` in your module to throw `PC_OUT_OF_RANGE` if the processor tries to execute code past `0x07FF`. However, in the current merged version, Keshav's `Pipeline::fetch()` actually handles this exact check natively before asking your module! Both parts do the exact same logic, so the CPU is fully protected.
+*Note on architecture:* `checkPC()` in the safety module raises `PC_OUT_OF_RANGE` if the processor tries to execute code past `0x07FF`. The sequential `Pipeline::fetch()` and the overlapped `CyclePipeline` fetch stage perform the same bound check natively before reading memory, so the CPU is fully protected in every pipeline mode; `checkPC()` remains available for direct use and tests.
 
 ---
 

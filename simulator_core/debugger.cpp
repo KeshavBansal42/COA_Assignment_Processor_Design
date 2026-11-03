@@ -53,18 +53,20 @@ StopReason Debugger::stepOnce() {
 StopReason Debugger::continueRun() {
   StopReason reason = StopReason::Running;
 
-  // A breakpoint stops before its instruction, so continuing from one runs that
-  // instruction before the breakpoint can fire again.
-  bool skipCurrent = resumeFromBreakpoint_ && hasBreakpoint(cpu_.pc());
+  // A breakpoint stops before its instruction is fetched, so continuing from one
+  // lets the next cycle fetch it before the breakpoint can fire again. nextPc()
+  // is the fetch stage's address in the overlapped pipelines and pc() in the
+  // sequential one.
+  bool skipCurrent = resumeFromBreakpoint_ && hasBreakpoint(cpu_.nextPc());
   resumeFromBreakpoint_ = false;
 
   while (reason == StopReason::Running) {
     if (cpu_.halted() || cpu_.exception() != ExceptionCode::NONE) {
       break;
     }
-    if (!skipCurrent && hasBreakpoint(cpu_.pc())) {
+    if (!skipCurrent && hasBreakpoint(cpu_.nextPc())) {
       resumeFromBreakpoint_ = true;
-      return stop(StopReason::Breakpoint, cpu_.pc());
+      return stop(StopReason::Breakpoint, cpu_.nextPc());
     }
     skipCurrent = false;
     reason = stepOnce();

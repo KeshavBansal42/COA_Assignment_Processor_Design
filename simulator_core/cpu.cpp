@@ -26,7 +26,11 @@ void Cpu::step() {
   if (mode_ == PipelineMode::Sequential) {
     pipeline_.step();
     ++cycles_;
-    ++instructions_;
+    // A faulting instruction raises before it commits, so it is not retired.
+    // HALT commits normally and is counted.
+    if (exception_ == ExceptionCode::NONE) {
+      ++instructions_;
+    }
     return;
   }
 
@@ -117,6 +121,19 @@ PipelineMode Cpu::pipelineMode() const { return mode_; }
 void Cpu::setControlMode(ControlMode mode) { control_.setMode(mode); }
 
 ControlMode Cpu::controlMode() const { return control_.mode(); }
+
+ControlSignals Cpu::decodeInstruction(uint32_t instr) { return control_.decode(instr); }
+
+std::vector<MicroTraceEntry> Cpu::microTrace(uint32_t instr) const {
+  return control_.trace(instr);
+}
+
+uint32_t Cpu::nextPc() const {
+  if (mode_ == PipelineMode::Sequential) {
+    return pc_;
+  }
+  return mode_ == PipelineMode::FourStage ? cycle4_.nextFetchPc() : cycle6_.nextFetchPc();
+}
 
 uint64_t Cpu::cycles() const { return cycles_; }
 

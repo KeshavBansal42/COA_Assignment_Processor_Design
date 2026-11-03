@@ -29,6 +29,7 @@ class Cli {
 
   void commandMode(const std::string& name);
   void commandMicro(const std::string& name);
+  void commandMicroTrace(uint32_t address);
   void commandCycles() const;
 
   void commandBreak(const std::string& target);

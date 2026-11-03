@@ -25,7 +25,7 @@ The opcode is always bits 31-26.
 
 Field positions: op 31-26, rd 25-22, rs 21-18, rt 17-14, imm 17-0, offset 25-0.
 
-## Instruction set (27 instructions)
+## Instruction set (27 base instructions)
 
 | Op (hex) | Mnemonic | Type | Semantics |
 |---|---|---|---|
@@ -103,24 +103,36 @@ and tested on its own. Shared types live in `isa_spec/isa201.h`.
 
 | Module | Signature |
 |---|---|
-| Assembler | `std::vector<uint32_t> assemble(const std::string& path)` |
-| Disassembler | `std::string disassemble(uint32_t word)` |
+| Preprocessor | `std::vector<SourceLine> preprocess(const std::vector<SourceLine>&)` |
+| Assembler | `void assemble(const std::string& path, std::vector<uint32_t>& outProgram)` |
+| Disassembler | `std::string disassemble(uint32_t word)` and `void disassemble(const std::string& hexPath)` |
 | ALU | `AluResult execute(AluOp op, uint32_t a, uint32_t b)` |
-| Control unit | `ControlSignals decode(uint32_t instr)` and `uint32_t getMicroPC()` |
+| Control unit | `ControlSignals decode(uint32_t instr)`, `uint32_t getMicroPC()`, `std::vector<MicroTraceEntry> trace(uint32_t instr)` |
 | Memory safety | `ExceptionCode checkStack(uint32_t sp, bool isPush)` and `ExceptionCode checkMem(uint32_t addr, bool isWrite)` |
 | Simulator | `void load(const std::vector<uint32_t>&)`, `void step()`, `void run()`, `void reset()` |
+
+The assembler's two-pass encode runs on the preprocessor's output, so macro
+expansion happens before labels and PCs are assigned. `docs/ebnf.md` is the
+accepted grammar and `docs/preprocessor.md` documents the stack macros.
+
+`Cpu::step()` means one instruction in `sequential` mode and one clock cycle in
+the `4stage` / `6stage` modes. `Cpu::run()` runs until HALT, an exception or the
+end of the code region in every mode.
 
 ## Open points
 
 1. No immediate shifts, no AND/OR immediates and no byte access in this version. Adding them
    later is cheap, but not after the freeze.
-2. The write into the code region rule is a suggestion, drop it if self-modifying code is wanted.
-3. Ask the TA whether deriving RISC201 from an existing RISC design is acceptable for the
-   "custom ISA" requirement.
+2. The write into the code region rule is implemented: a store into `0x000`-`0x7FF`
+   raises `INVALID_MEM_ACCESS`. Drop it if self-modifying code is wanted.
+3. The ISA is a MIPS-style RISC design; deriving RISC201 from an existing RISC design was
+   accepted for the "custom ISA" requirement.
+4. The four floating-point instructions are part of the implemented RISC201 ISA, not an
+   optional add-on. They are wired through the ALU, control unit and both control encodings.
 
-## Floating-point extension
+## Floating-point instructions
 
-The original 27 instructions above remain unchanged. Four additional R-type
+The 27 base instructions above are unchanged. Four R-type floating-point
 instructions use general-purpose registers as raw IEEE 754 binary32 bit patterns:
 
 | Opcode | Instruction | Operation |
@@ -140,5 +152,5 @@ and negative infinity, and returns per-operation floating-point status. Those
 controls/status are not CPU registers or instruction operands. See [ALU contract](alu.md).
 Values can be transferred through memory or constructed as bit patterns with
 integer instructions; there is no float literal or conversion instruction.
-See `tests/programs/float_demo.s` for an example. This extension changes the
-frozen ISA and should be agreed with the team for the assignment.
+See `tests/programs/float_demo.s` for an example. Floating point is a required
+part of the RISC201 ISA implemented by this simulator.

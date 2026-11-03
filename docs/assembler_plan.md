@@ -24,8 +24,9 @@ The assembler is a standalone translation engine that converts a RISC201 assembl
 - **Pure Machine Code Output:** The generated `.hex` file contains only bare 8-digit hexadecimal words (`%08x`), one per line. No mnemonics, comments, or annotations.
 - **Output Placement:** Output `.hex` file is placed in the **exact same directory** as the input `.s` file (e.g., `tests/programs/loop.s` $\rightarrow$ `tests/programs/loop.hex`).
 - **No Data Directives:** Pure instruction stream only. Directives like `.data`, `.word`, or `.space` are not supported.
-- **Labels & Numbers:** Branch and jump targets support both symbolic labels (`BNE loop`) and literal relative numbers (`BNE -4`).
-- **Label Placement:** Supports both standalone label lines (`loop:\n  ADD ...`) and inline label prefixes (`loop: ADD ...`).
+- **Stack Preprocessor:** `.macro` / `.endmacro` definitions are expanded before Pass 1 (`assembler/preprocessor.cpp`). This is how multi-instruction full-descending stack sequences are expressed; see `docs/preprocessor.md`.
+- **Labels & Numbers:** `JMP`, `BEQ`, `BNE`, `BLT`, `BGE` and `CALL` take a **label**; raw numeric PC offsets (`BNE -4`) are rejected and the offset is computed as `target - (PC + 1)`. Immediates for `ADDI`, `LDI`, `LW` and `SW` do accept decimal or `0x` hex numbers.
+- **Label Placement:** Labels must be on a standalone line (`loop:` then the instruction). Inline prefixes (`loop: ADD ...`) are rejected.
 - **Error Reporting:** All syntax, range, or file errors throw `std::runtime_error` containing the 1-based source line number.
 - **ISA Reuse:** Directly uses `Opcode`, `kInstructionTable`, `lookupInstruction`, `encodeR`, `encodeI`, `encodeJ` from `isa_spec/isa201.h`.
 
@@ -52,7 +53,7 @@ The assembler is a standalone translation engine that converts a RISC201 assembl
                       │ - Check strict UPPER   │
                       │ - Tokenize mnemonic    │
                       │ - Parse R/I/J formats  │
-                      │ - Resolve label/number │
+                      │ - Resolve labels       │
                       └───────────┬────────────┘
                                   │
                                   ▼
@@ -73,27 +74,37 @@ The assembler is a standalone translation engine that converts a RISC201 assembl
 
 ## 3. Implementation Phases
 
+### Phase 0: Stack Macro Preprocessing
+1. Read the whole file into `SourceLine { text, line }` records.
+2. Run `preprocess()` (`assembler/preprocessor.cpp`): collect `.macro` / `.endmacro`
+   definitions, then expand each invocation, substituting `\name` and `\1`
+   parameters. The assembler passes below only see the expanded instruction
+   stream. See `docs/preprocessor.md`.
+
 ### Phase 1: Line Ingestion & Label Scanning (Pass 1)
-1. Read input file line-by-line using `std::ifstream` and `std::getline`.
+1. Iterate the preprocessed `SourceLine` records.
 2. For each line:
    - Strip comments starting with `;` or `#`.
    - Trim leading and trailing whitespace.
    - If line is empty, skip.
-   - Check for label prefix `^[a-zA-Z_][a-zA-Z0-9_]*:`.
-   - Record `symbolTable[label] = instructionCount`.
-   - If standalone label line, continue to next line.
-   - If an inline instruction follows label, strip label and increment `instructionCount`.
+   - A label is a whole line matching `^[a-zA-Z_][a-zA-Z0-9_]*:$`.
+   - Record `symbolTable[label] = instructionCount` and continue to the next
+     line. An inline instruction after the label is rejected.
 
 ### Phase 2: Tokenization & Strict Parsing Helpers
 Helper functions in `assembler/assembler.cpp`:
 - **`parseRegister(token, line) -> uint8_t`:**
   - Must match strictly `^R([0-9]|1[0-5])$` (`R0` through `R15`).
   - Rejects lowercase `r1` or out-of-range (`R16`) with `std::runtime_error("Line <N>: invalid register '<token>'")`.
-- **`parseImmediateOrTarget(token, line, symbols, currentPC) -> int32_t`:**
-  - **Numeric literal:** If token parses as a decimal/hex integer (e.g. `-4`, `42`, `0x20`), return that literal integer directly.
-  - **Symbolic label:** Look up token in `symbolTable`. If found, compute relative target offset: `offset = targetAddr - (currentPC + 1)`.
-  - Validate range limits (18-bit signed immediate `-131072`..`131071`, 26-bit signed offset `-33554432`..`33554431`).
-  - If token is neither a valid number nor a known label, throw `std::runtime_error("Line <N>: undefined symbol '<token>'")`.
+- **`parseImmediate(token, line) -> int32_t`:**
+  - Parses a signed decimal (e.g. `-42`, `12345`) or an unsigned `0x` hex value.
+  - Validates the 18-bit signed immediate range and sign-extends the 18-bit field.
+- **`parseBranchTarget(token, line, symbols, currentPC) -> int32_t`:**
+  - Requires a label: a numeric offset is rejected with
+    `"manual PC offset not allowed"`.
+  - Computes `offset = targetAddr - (currentPC + 1)` and validates the 26-bit
+    signed range.
+  - An unknown label throws `"undefined label '<token>'"`.
 - **`parseMemOperand(token, line, ...) -> pair<uint8_t rs, int32_t imm>`:**
   - Strictly parses `imm(RS)` (e.g. `4(R2)` or `0(R1)`).
 
@@ -111,7 +122,8 @@ Dispatches based on `info->format` from `lookupInstruction(mnemonic)`:
 | **I-Type (mem)** | `LW`, `SW` | `LW RD, imm(RS)`<br>`SW RD, imm(RS)` | `encodeI(opcode, rd, rs, imm)` |
 | **I-Type (stack)** | `PUSH`, `POP` | `PUSH RD`<br>`POP RD` | `encodeI(opcode, rd, 0, 0)` |
 | **I-Type (ret)** | `RET` | `RET` | `encodeI(Opcode::RET, 0, 0, 0)` |
-| **J-Type** | `JMP`, `BEQ`, `BNE`, `BLT`, `BGE`, `CALL` | `OP offset\|label` | `encodeJ(opcode, offset)` |
+| **R-Type (float)** | `FADD`, `FSUB`, `FMUL`, `FDIV` | `OP RD, RS, RT` | `encodeR(opcode, rd, rs, rt)` |
+| **J-Type** | `JMP`, `BEQ`, `BNE`, `BLT`, `BGE`, `CALL` | `OP label` | `encodeJ(opcode, offset)` |
 
 Every encoded instruction word is appended directly to the persistent `std::vector<uint32_t>`.
 
@@ -127,10 +139,11 @@ Every encoded instruction word is appended directly to the persistent `std::vect
 ### Phase 5: Verification & Tests
 Create `tests/test_assembler.cpp` covering:
 1. **Case-Sensitivity Checks:** Verify `ADD R1, R2, R3` succeeds, but `add r1, r2, r3` and `ADD r1, R2, R3` throw line-numbered errors.
-2. **Instruction Set Coverage:** Assemble all 27 instructions and compare against known `encodeR/I/J` values.
-3. **Labels vs Literals:** Test backward loops (`BNE loop`), forward calls (`CALL helper`), and literal offsets (`BNE -4`).
+2. **Instruction Set Coverage:** Assemble all 27 base instructions and compare against known `encodeR/I/J` values; the four floating-point instructions are covered by `tests/test_float.cpp` and `tests/programs/float_demo.s`.
+3. **Labels:** Test backward loops (`BNE loop`) and forward calls (`CALL helper`); assert that a literal offset (`BNE -4`) and an inline label are rejected.
 4. **Hex File Output:** Verify `<stem>.hex` is created beside the `.s` file containing pure 8-digit hex words, and verify it can be loaded directly by `Cpu::load` / `risc201-sim`.
 5. **Round-Trip Test:** Verify that assembling demo programs produces the exact binaries in `tests/programs/*.hex`.
+6. **Stack Macros:** Verify `SAVE` / `RESTORE` expand to the expected `PUSH` / `POP` words, plus wrong-argument-count, missing-`.endmacro` and unknown-parameter errors (see `docs/preprocessor.md`).
 
 ---
 
@@ -138,9 +151,9 @@ Create `tests/test_assembler.cpp` covering:
 
 All open questions have been confirmed by the prompter:
 
-1. **Directives:** No data directives (`.data`, `.word`, etc.) — pure instructions only.
-2. **Jump / Branch Targets:** Support both symbolic labels (`BNE loop`) and raw numeric offsets (`BNE -4`).
-3. **Label Placement:** Support both standalone lines (`loop:\n  ...`) and inline prefixes (`loop: ADD ...`).
+1. **Directives:** No data directives (`.data`, `.word`, etc.) — pure instructions only. `.macro` / `.endmacro` are the one preprocessing directive pair.
+2. **Jump / Branch Targets:** Labels only (`BNE loop`); raw numeric offsets are rejected.
+3. **Label Placement:** Standalone lines only (`loop:` then the instruction); inline prefixes are rejected.
 4. **Case Sensitivity:** Strictly uppercase only (`ADD`, `R0`..`R15`). Lowercase mnemonics and registers are syntax errors.
 5. **Architecture:** Pure function-based design without abstract base classes or virtual tables.
 6. **Programmatic Access:** Provided via `void assemble(const std::string& path, std::vector<uint32_t>& outProgram)`.

@@ -78,6 +78,30 @@ void testMemCommand() {
   assert(output.find("end of memory") != std::string::npos);
 }
 
+void testMicroTraceCommand() {
+  writeProgramFile();
+
+  Cpu cpu;
+  const std::string vertical = runCommands(
+      cpu, std::string("load ") + kProgramPath + "\nmicro vertical\nmicrotrace 0\n");
+
+  assert(vertical.find("microtrace PC 0x00000000") != std::string::npos);
+  assert(vertical.find("ALU_IMM") != std::string::npos);
+  assert(vertical.find("REG_WRITE") != std::string::npos);
+  assert(vertical.find("sequencer stop") != std::string::npos);
+  assert(vertical.find("decoded signals") != std::string::npos);
+
+  const std::string horizontal =
+      runCommands(cpu, "micro horizontal\nmicrotrace 0\n");
+  assert(horizontal.find("HORIZONTAL") != std::string::npos);
+
+  // An undefined opcode must be reported, not silently decoded.
+  Cpu bad;
+  bad.load({0xFC000000u});
+  const std::string illegal = runCommands(bad, "microtrace 0\n");
+  assert(illegal.find("ILLEGAL_INSTRUCTION") != std::string::npos);
+}
+
 void testMissingFile() {
   Cpu cpu;
   const std::string output = runCommands(cpu, "load no_such_program.hex\n");
@@ -106,6 +130,7 @@ int main() {
   testLoadRunAndRegs();
   testStepCommand();
   testMemCommand();
+  testMicroTraceCommand();
   testMissingFile();
   testUnknownCommand();
   testQuitEndsTheSession();

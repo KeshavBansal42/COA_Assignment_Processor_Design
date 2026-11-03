@@ -15,7 +15,7 @@ CSC-201 Computer Organization & Architecture, Autumn 2026.
 | `simulator_core/` | CPU, the sequential and overlapped pipelines, CLI and debugger |
 | `alu/` | CLA, carry-save/Wallace multiplication, restoring integer division, Newton-Raphson binary32 division |
 | `control_unit/` | microcoded control unit, horizontal ROM and vertical microprogram |
-| `assembler/` | two-pass assembler and the `risc201-asm` CLI |
+| `assembler/` | stack macro preprocessor, two-pass assembler and the `risc201-asm` CLI |
 | `disassembler/` | disassembler and the `risc201-disasm` CLI |
 | `memory_safety/` | stack and memory range checks, exception strings, ASCII stack view |
 | `visualizer/` | the animated code and machine state view, `risc201-viz` |
@@ -34,8 +34,13 @@ CSC-201 Computer Organization & Architecture, Autumn 2026.
     ./build/risc201-sim tests/programs/loop.hex
 
 Type `help` inside the simulator for the command list, or read `docs/cli.md`.
-`mode` picks the pipeline, `micro` picks the control encoding and `cycles` shows
-the counters.
+`mode` picks the pipeline, `micro` picks the control encoding, `cycles` shows
+the counters, `stack` renders the ASCII stack frames and `microtrace` prints the
+microPC stepping through the control store for one instruction.
+
+The assembler expands `.macro` / `.endmacro` definitions before its two passes,
+which is how multi-instruction full-descending stack sequences are written
+(`docs/preprocessor.md`). `tests/programs/stack_macros.s` is a runnable example.
 
 The visualizer animates a program a cycle at a time and shows the code line, the
 registers, the stack and the pipeline:
@@ -58,8 +63,8 @@ CLA and carry-save/Wallace primitives. FDIV uses fixed-point Newton-Raphson
 with exact residual correction; integer DIV remains restoring. CPU instructions use
 nearest-even; the FP module exposes all four
 rounding modes and separate arithmetic status. See `docs/alu.md`, `docs/isa_spec.md`
-and `tests/programs/float_demo.s` for details. The
-extension changes the PDF's frozen ISA and needs team agreement.
+and `tests/programs/float_demo.s` for details. Floating point is a required part
+of the implemented RISC201 ISA.
 
 The arithmetic tests can be built independently of other modules:
 
@@ -73,7 +78,9 @@ The implemented ISA runs on the sequential reference and on the 4-stage and
 reference (`tests/test_pipeline_hazards.cpp`). The control unit reads either the
 horizontal ROM or the vertical microprogram, and both decode identically
 (`tests/test_microcode.cpp`). Exceptions are raised and reported, the CLI and
-debugger work, the assembler and disassembler round-trip, and the visualizer and
+debugger work (including in the overlapped pipelines), the assembler expands
+full-descending stack macros and round-trips with the disassembler, the
+`microtrace` command displays the microPC walk, and the visualizer and
 evaluation harness are in place.
 
 The real modules are wired into `Cpu`: the structural ALU (`alu/`), the

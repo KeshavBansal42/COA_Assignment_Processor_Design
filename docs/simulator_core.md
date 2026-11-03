@@ -1,7 +1,7 @@
 # Simulator core design
 
 The simulator is `risc201::Cpu` in `simulator_core/`. Everything else in the core exists
-to serve it: the pipeline executes instructions, the control unit decodes them, the ALU
+to serve it: the pipelines execute instructions, the control unit decodes them, the ALU
 does the arithmetic and the safety module checks addresses.
 
 ## Machine state
@@ -19,7 +19,26 @@ does the arithmetic and the safety module checks addresses.
 puts the registers, PC, SP, FLAGS, halt flag and exception back to their start values and
 leaves memory alone, so a program survives a reset and can be run again.
 
-## The four stages
+## Three executors
+
+`PipelineMode` selects which executor `step()` drives:
+
+| Mode | Executor | One `step()` is |
+|---|---|---|
+| `Sequential` | `Pipeline` | one whole instruction (IF, ID/OF, EX, WB) |
+| `FourStage` | `CyclePipeline(4)` | one clock cycle |
+| `SixStage` | `CyclePipeline(6)` | one clock cycle |
+
+The sequential pipeline is the reference model. The overlapped pipelines keep several
+instructions in flight, forward results, stall on load-use/flags/SP/memory order and flush
+on a taken branch. `tests/test_pipeline_hazards.cpp` proves all three reach the same
+registers, memory, PC, SP, flags and exception.
+
+`Cpu::nextPc()` reports the address the active pipeline will fetch next. It equals `pc()`
+in sequential mode and the fetch stage's PC in the overlapped modes, where the last
+committed write back is behind the fetch stage.
+
+## The sequential reference (four stages)
 
 One call to `Cpu::step()` moves one instruction through all four stages, in this order:
 
@@ -30,22 +49,52 @@ One call to `Cpu::step()` moves one instruction through all four stages, in this
 | EX | runs the ALU, works out the branch or jump target, and checks the stack and memory addresses |
 | WB | commits the register write, the memory write, FLAGS, the new SP and the new PC |
 
-The stages do not overlap: an instruction finishes before the next one starts. That is
-deliberate for now, because overlapping them would create read-after-write hazards and
-handling those is later work. The three latches (`IfId`, `IdEx`, `ExWb`) keep the stage
-boundaries in place so the stages can be overlapped without restructuring anything.
+The stages do not overlap here; the latches keep the stage boundaries explicit and are
+the reference for the cycle pipeline.
 
-## PC is updated in write back
+## The overlapped pipelines
 
-`fetch()` reads the instruction but does not move PC. Write back commits either the
-branch or jump target or `PC + 1`. This is what lets an exception leave PC pointing at
-the instruction that faulted rather than the one after it, and it is why HALT leaves PC
-on the HALT.
+`CyclePipeline` is configured with 4 or 6 stages:
+
+- 4 stage: IF, ID (decode and read operands), EX (ALU, branch resolve, address), WB
+  (register, memory, flags, SP).
+- 6 stage: IF, ID (decode), OF (read operands), EX (ALU, branch resolve), MEM (load,
+  store), WB (register, flags, SP).
+
+Each cycle the engine walks the stages oldest first, so a younger stage sees an older
+stage's result in the same cycle. `lat_[i]` is the output of stage `i`.
+
+### Hazards
+
+- **Forwarding:** the operand stage takes a register value from the newest in-flight
+  producer that has already computed it, otherwise from the register file. Back-to-back
+  ALU operations therefore do not stall.
+- **Load use:** a load's data is ready later (WB in the 4 stage, MEM in the 6 stage), so
+  the dependent instruction waits one cycle.
+- **Flags:** a branch waits while a flag-writing instruction is in flight, because flags
+  are read as committed, not forwarded.
+- **Stack pointer:** PUSH, POP, CALL and RET serialise on SP so the memory they touch is
+  ordered.
+- **Memory order:** two memory instructions never overlap.
+- **Control:** a taken branch, jump, call or return in EX flushes the younger stages and
+  redirects the fetch PC. The 6 stage flushes one more stage than the 4 stage.
+
+### Stopping
+
+HALT and exceptions are detected in EX. The offending instruction and everything younger
+are killed, older instructions drain, then `PC` is set to the recorded stop address and
+the machine is marked halted or faulted. A faulting instruction has no side effects.
+
+## Retired instruction counter
+
+`Cpu::instructions()` counts committed instructions. HALT commits normally in sequential
+mode and is counted there; in the overlapped modes HALT never reaches write back, so it is
+counted when the pipeline drains. A faulting instruction is not counted in any mode. This
+keeps the totals identical across the three executors.
 
 ## Exceptions
 
-An exception stops the machine. The pipeline stops before the stages that would have
-written anything, so a faulting instruction has no side effects, and `run()` returns.
+An exception stops the machine and `run()` returns.
 
 | Code | Raised in | When |
 |---|---|---|
@@ -53,12 +102,12 @@ written anything, so a faulting instruction has no side effects, and `run()` ret
 | `STACK_UNDERFLOW` | EX | POP or RET would take SP above `0x1000` |
 | `INVALID_MEM_ACCESS` | EX | a load or store outside `0x000`-`0xFFF`, or a store into the code region |
 | `DIV_BY_ZERO` | EX | DIV with a zero divisor, reported by the ALU |
-| `ILLEGAL_INSTRUCTION` | ID/OF | the opcode is not one of the 27 defined instructions |
+| `ILLEGAL_INSTRUCTION` | ID/OF | the opcode is not a defined instruction |
 | `PC_OUT_OF_RANGE` | IF | PC is past `0x7FF` |
 
 ## Modules
 
-The pipeline takes its collaborators by reference and never constructs them:
+The executors take their collaborators by reference and never construct them:
 
 - `Alu` (`alu/alu.hpp`) for arithmetic in EX
 - `ControlUnit` (`control_unit/control_unit.hpp`) for decode in ID/OF
@@ -69,12 +118,16 @@ The pipeline takes its collaborators by reference and never constructs them:
 different implementation (for example a vertical microcode control unit) can be swapped
 in without touching the pipeline.
 
+`Cpu::decodeInstruction()` and `Cpu::microTrace()` expose the control unit's decode and
+its microPC walk for the CLI's `microtrace` command; they do not execute anything.
+
 ## Files
 
 | File | Contents |
 |---|---|
-| `cpu.hpp` / `cpu.cpp` | machine state, `load`, `step`, `run`, `reset` |
-| `pipeline.hpp` / `pipeline.cpp` | the four stages and the latches |
+| `cpu.hpp` / `cpu.cpp` | machine state, `load`, `step`, `run`, `reset`, mode selection |
+| `pipeline.hpp` / `pipeline.cpp` | the sequential four-stage reference and latches |
+| `cycle_pipeline.hpp` / `cycle_pipeline.cpp` | the overlapped 4 and 6 stage engines |
 | `debugger.hpp` / `debugger.cpp` | breakpoints, watchpoints and symbols |
 | `cli.hpp` / `cli.cpp` | command shell |
 | `main.cpp` | REPL entry point |

@@ -143,6 +143,19 @@ bool Cli::execute(const std::string& line) {
     } else {
       out_ << "usage: micro <horizontal|vertical>\n";
     }
+  } else if (command == "microtrace") {
+    std::string target;
+    if (input >> target) {
+      uint32_t address = 0;
+      std::string error;
+      if (!resolveAddress(target, address, error)) {
+        out_ << error << "\n";
+      } else {
+        commandMicroTrace(address);
+      }
+    } else {
+      commandMicroTrace(cpu_.pc());
+    }
   } else if (command == "cycles") {
     commandCycles();
   }
@@ -298,6 +311,60 @@ void Cli::commandMicro(const std::string& name) {
        << "\n";
 }
 
+void Cli::commandMicroTrace(uint32_t address) {
+  if (address > kLastAddress) {
+    out_ << "address out of range: 0x" << toHex(address) << "\n";
+    return;
+  }
+
+  const uint32_t instr = cpu_.readMem(address);
+  const Opcode opcode = decodeOpcode(instr);
+  const bool vertical = cpu_.controlMode() == ControlMode::Vertical;
+
+  out_ << "microtrace PC 0x" << toHex(address) << "  word 0x" << toHex(instr) << "  "
+       << mnemonicOf(opcode) << " [" << (vertical ? "vertical" : "horizontal") << "]\n";
+
+  const ControlSignals signals = cpu_.decodeInstruction(instr);
+  const std::vector<MicroTraceEntry> steps = cpu_.microTrace(instr);
+
+  for (const MicroTraceEntry& step : steps) {
+    std::ostringstream microPc;
+    microPc << std::hex << std::setw(4) << std::setfill('0') << step.microPc;
+    out_ << "  microPC 0x" << microPc.str() << "  word 0x" << toHex(step.word) << "  "
+         << step.operation;
+    if (step.aluOperation[0] != '\0') {
+      out_ << " alu=" << step.aluOperation;
+    }
+    if (step.end) {
+      out_ << (vertical ? "  (sequencer stop)" : "  (single wide word)");
+    }
+    out_ << "\n";
+  }
+
+  if (signals.illegal) {
+    std::ostringstream op;
+    op << std::hex << std::setw(2) << std::setfill('0')
+       << static_cast<unsigned>(static_cast<uint8_t>(opcode));
+    out_ << "  exception ILLEGAL_INSTRUCTION (opcode 0x" << op.str() << ")\n";
+    return;
+  }
+
+  out_ << "  decoded signals:";
+  if (signals.regWrite) out_ << " regWrite";
+  if (signals.memRead) out_ << " memRead";
+  if (signals.memWrite) out_ << " memWrite";
+  if (signals.writeFlags) out_ << " writeFlags";
+  if (signals.branch) out_ << " branch";
+  if (signals.jump) out_ << " jump";
+  if (signals.push) out_ << " push";
+  if (signals.pop) out_ << " pop";
+  if (signals.ret) out_ << " ret";
+  if (signals.halt) out_ << " halt";
+  out_ << "  aluSrc=" << (signals.aluSrc == AluSrc::Immediate ? "immediate" : "register")
+       << "  resultSrc=" << (signals.resultSrc == ResultSrc::Memory ? "memory" : "alu")
+       << "\n";
+}
+
 void Cli::commandCycles() const {
   out_ << "cycles " << cpu_.cycles() << "  instructions " << cpu_.instructions() << "\n";
   if (cpu_.pipelineMode() != PipelineMode::Sequential) {
@@ -443,7 +510,7 @@ void Cli::printHelp() const {
   out_ << "load <file>         load a program, one hex word per line\n";
   out_ << "symbols <file>      load labels, one \"name address\" per line\n";
   out_ << "run                 run until a breakpoint, watchpoint, HALT or an exception\n";
-  out_ << "step [count]        run count instructions, default 1\n";
+  out_ << "step [count]        run count steps: instruction (sequential) or cycle (overlapped)\n";
   out_ << "reset               reset the CPU, the program stays loaded\n";
   out_ << "regs                show the registers, PC, SP and FLAGS\n";
   out_ << "mem [start] [n]     show n words from start, default 0x000 and 16\n";
@@ -456,6 +523,7 @@ void Cli::printHelp() const {
   out_ << "stack [n]           show the top n stack words, default 16\n";
   out_ << "mode <name>         sequential, 4stage or 6stage pipeline\n";
   out_ << "micro <name>        horizontal or vertical microcode\n";
+  out_ << "microtrace [addr]   show the microPC steps for an instruction\n";
   out_ << "cycles              show cycles, instructions and hazard counts\n";
   out_ << "help                show this list\n";
   out_ << "quit                leave the simulator\n";

@@ -38,7 +38,9 @@ target_link_libraries(risc201_sim PRIVATE risc201_core)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Assembler module
-add_library(risc201_assembler STATIC assembler/assembler.cpp)
+add_library(risc201_assembler STATIC
+  assembler/assembler.cpp
+  assembler/preprocessor.cpp)
 target_link_libraries(risc201_assembler PUBLIC risc201_isa)
 
 add_executable(risc201_asm assembler/main.cpp)

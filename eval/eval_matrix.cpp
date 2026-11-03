@@ -18,8 +18,9 @@ using namespace risc201;
 
 namespace {
 
-const char* kPrograms[] = {"loop.hex",          "recursion.hex",      "stack_fault.hex",
-                           "hazard_raw.hex",    "hazard_load_use.hex", "hazard_branch.hex"};
+const char* kPrograms[] = {"loop.hex",          "recursion.hex",       "stack_fault.hex",
+                           "stack_macros.hex",  "hazard_raw.hex",      "hazard_load_use.hex",
+                           "hazard_branch.hex"};
 
 std::vector<uint32_t> loadProgram(const std::string& name) {
   std::ifstream file(std::string(RISC201_PROGRAMS_DIR) + "/" + name);

@@ -52,6 +52,23 @@ void testBreakpointStopsBeforeTheInstruction() {
   assert(cpu.halted());
 }
 
+void testBreakpointInOverlappedPipelines() {
+  for (PipelineMode mode : {PipelineMode::FourStage, PipelineMode::SixStage}) {
+    Cpu cpu;
+    cpu.load(testProgram());
+    cpu.setPipelineMode(mode);
+    Debugger debugger(cpu);
+    debugger.addBreakpoint(2);
+
+    assert(debugger.continueRun() == StopReason::Breakpoint);
+    assert(debugger.stopAddress() == 2);
+    assert(cpu.reg(3) == 0);  // the ADD has not been fetched
+
+    assert(debugger.continueRun() == StopReason::Halted);
+    assert(cpu.reg(3) == 11);
+  }
+}
+
 void testContinueWithoutBreakpoints() {
   Cpu cpu;
   cpu.load(testProgram());
@@ -167,6 +184,7 @@ void testResetKeepsTheProgram() {
 
 int main() {
   testBreakpointStopsBeforeTheInstruction();
+  testBreakpointInOverlappedPipelines();
   testContinueWithoutBreakpoints();
   testWatchpointStopsAfterTheStore();
   testStepOnce();

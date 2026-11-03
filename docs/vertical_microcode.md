@@ -52,6 +52,7 @@ index in a table indexed by opcode. Opcodes with no program decode to
 | `ADD` `SUB` `MUL` | `ALU_REG(r) REG_WRITE FLAGS END` | 4 |
 | `AND` `OR` `XOR` `NOT` | `ALU_REG(r) REG_WRITE FLAGS END` | 4 |
 | `DIV` `SHL` `SHR` `MOV` | `ALU_REG(r) REG_WRITE END` | 3 |
+| `FADD` `FSUB` `FMUL` `FDIV` | `ALU_REG(f) REG_WRITE END` | 3 |
 | `CMP` | `ALU_REG(CMP) FLAGS END` | 3 |
 | `ADDI` | `ALU_IMM(ADD) REG_WRITE FLAGS END` | 4 |
 | `LDI` | `ALU_IMM(ADD) REG_WRITE END` | 3 |
@@ -61,7 +62,7 @@ index in a table indexed by opcode. Opcodes with no program decode to
 | `BEQ` `BNE` `BLT` `BGE` | `BRANCH END` | 2 |
 | `CALL` | `JUMP PUSH END` | 3 |
 
-The whole program fits in 78 of the 128 micro words.
+All 31 defined instructions fit in 90 of the 128 micro words.
 
 ## Sequencer
 
@@ -74,6 +75,31 @@ identical signals, the pipelines are unaffected by the choice.
   microprogram (the horizontal mode returns the ROM row, which is the opcode).
 - `lastMicroOpCount()` returns how many micro operations ran: the microprogram
   length minus the `END`, or one for a horizontal word.
+- `trace(instr)` returns every `MicroTraceEntry` the instruction walks, with the
+  microPC, control word, micro operation, ALU op and an end marker. It does not
+  change the decode state.
 
-`tests/test_microcode.cpp` checks that every one of the 27 opcodes, plus an
-undefined one, decodes to the same signals in both encodings.
+The whole microprogram for one machine instruction is folded in a single
+`decode()` call: the datapath has no micro-cycle stalls, so a micro operation
+does not advance the pipeline clock on its own. The microPC walk is exposed for
+inspection through `trace()` / the CLI `microtrace` command rather than being
+interleaved with instruction execution. This is a modelling choice, not a
+hardwired-control shortcut: every control signal still comes from control
+memory.
+
+The CLI uses `trace()` for `microtrace [address]`, which prints the microPC
+stepping through the control store and the decoded signals, and reports
+`ILLEGAL_INSTRUCTION` for an undefined opcode:
+
+    > micro vertical
+    > microtrace 3
+    microtrace PC 0x00000003  word 0x08cc4000  ADD [vertical]
+      microPC 0x0003  word 0x00000001  ALU_REG alu=ADD
+      microPC 0x0004  word 0x00000003  REG_WRITE
+      microPC 0x0005  word 0x00000004  FLAGS
+      microPC 0x0006  word 0x00000000  END  (sequencer stop)
+      decoded signals: regWrite writeFlags  aluSrc=register  resultSrc=alu
+
+`tests/test_microcode.cpp` checks that every defined opcode, plus an undefined
+one, decodes to the same signals in both encodings. `tests/test_cli.cpp` checks
+the microPC trace itself.

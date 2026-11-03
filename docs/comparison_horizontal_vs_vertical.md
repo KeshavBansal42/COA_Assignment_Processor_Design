@@ -25,6 +25,7 @@ vertical):
 | loop | 8 | 24 | 256 | 384 |
 | recursion | 14 | 38 | 448 | 608 |
 | stack_fault | 2 | 6 | 64 | 96 |
+| stack_macros | 12 | 27 | 384 | 432 |
 | hazard_raw | 7 | 24 | 224 | 384 |
 | hazard_load_use | 6 | 18 | 192 | 288 |
 | hazard_branch | 7 | 19 | 224 | 304 |
@@ -46,7 +47,7 @@ vertical):
   revisiting every word that should drive it. This is the tradeoff microprogramming
   was invented for.
 - Both encodings are held to the same contract by `tests/test_microcode.cpp`,
-  which asserts they decode all 27 opcodes to identical signals.
+  which asserts they decode all 31 defined opcodes to identical signals.
 
 ## Where vertical would win here
 

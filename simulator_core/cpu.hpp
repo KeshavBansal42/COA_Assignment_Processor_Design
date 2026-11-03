@@ -75,6 +75,18 @@ public:
   void setControlMode(ControlMode mode);
   ControlMode controlMode() const;
 
+  // Decode one instruction word without running it, for the CLI's microcode
+  // inspector. Refreshes the control unit's microPC.
+  ControlSignals decodeInstruction(uint32_t instr);
+
+  // The control memory words an instruction walks, for the microPC trace.
+  std::vector<MicroTraceEntry> microTrace(uint32_t instr) const;
+
+  // Address the active pipeline will fetch next. Equal to pc() in sequential
+  // mode; in the overlapped modes it is the fetch stage's PC, which is ahead of
+  // the last committed write back.
+  uint32_t nextPc() const;
+
   // Clock cycles and retired instructions since the last reset.
   uint64_t cycles() const;
   uint64_t instructions() const;

@@ -44,7 +44,7 @@ line is `name address` or `name = address`, and comments work the same way:
 | `symbols <file>` | load labels |
 | `run` | run until a breakpoint, a watchpoint, HALT or an exception |
 | `continue` | the same as `run` |
-| `step [count]` | run count instructions, one by default |
+| `step [count]` | run count steps, one by default (an instruction in sequential mode, a clock cycle in the overlapped modes) |
 | `reset` | reset the CPU, the loaded program stays in memory |
 | `regs` | show the registers, PC, SP and FLAGS |
 | `mem [start] [count]` | show count words from start, 0x000 and 16 by default |
@@ -54,6 +54,11 @@ line is `name address` or `name = address`, and comments work the same way:
 | `watch <address\|label>` | stop when the address is written |
 | `unwatch <address\|label>` | remove a watchpoint |
 | `watches` | list the watchpoints |
+| `stack [n]` | render the top n stack words as an ASCII stack frame |
+| `mode <name>` | pick `sequential`, `4stage` or `6stage` (restarts the program) |
+| `micro <name>` | pick `horizontal` or `vertical` control memory |
+| `microtrace [address]` | show the microPC stepping through an instruction |
+| `cycles` | show cycles, instructions and the hazard counters |
 | `help` | show the command list |
 | `quit` | leave the simulator |
 
@@ -62,6 +67,51 @@ expected, a label from the symbol file is accepted too.
 
 A breakpoint that sits inside a loop stops once per pass, so `run` has to be repeated to
 walk the loop.
+
+## Pipelines
+
+`mode` selects the executor. `sequential` runs one whole instruction per `step` (the
+reference model). `4stage` and `6stage` advance one clock cycle per `step`, with
+forwarding, hazard stalls and branch flushes, so an instruction takes several steps to
+retire. `cycles` reports the cycle and instruction totals plus the stall, flush and
+forward counters.
+
+Breakpoints stop before the next fetch. In the overlapped modes that is the fetch
+stage's address (`nextPc()`), which runs ahead of the last committed write back.
+
+## Microcode
+
+`micro horizontal` reads one 32-bit control word per instruction; `micro vertical`
+walks a short 16-bit microprogram through a sequencer. Both produce the same control
+signals, so the program result does not change.
+
+`microtrace` shows the control store walk for the instruction at the current PC, or at
+the address given:
+
+    > micro vertical
+    control mode vertical
+    > microtrace 3
+    microtrace PC 0x00000003  word 0x08cc4000  ADD [vertical]
+      microPC 0x0003  word 0x00000001  ALU_REG alu=ADD
+      microPC 0x0004  word 0x00000003  REG_WRITE
+      microPC 0x0005  word 0x00000004  FLAGS
+      microPC 0x0006  word 0x00000000  END  (sequencer stop)
+      decoded signals: regWrite writeFlags  aluSrc=register  resultSrc=alu
+
+An undefined opcode is reported by the trace as `ILLEGAL_INSTRUCTION`, which is the
+same exception the pipeline raises when it tries to execute it.
+
+## Stack view
+
+`stack` prints the full-descending stack as ASCII frames, with the SP marker, hex and
+decimal values, and a frame boundary guessed from a saved return address:
+
+    > stack 4
+    +----------------- STACK -----------------+
+    | 0x0FFF | 0x00001111 |       4369 |
+    | 0x0FFE | 0x00002222 |       8738 |
+    ...
+    +-----------------------------------------+
 
 ## A demo run
 

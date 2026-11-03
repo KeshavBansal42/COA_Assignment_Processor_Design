@@ -1,5 +1,7 @@
 #include "assembler.hpp"
 
+#include "assembler/preprocessor.hpp"
+
 #include <cctype>
 #include <fstream>
 #include <iomanip>
@@ -233,36 +235,44 @@ void assemble(const std::string& path, std::vector<uint32_t>& outProgram) {
     throw std::runtime_error("could not open source file: " + path);
   }
 
+  // Read the source, then run the stack macro preprocessor so the two passes
+  // below only ever see flat instructions.
+  std::vector<SourceLine> source;
+  std::string raw;
+  int lineNum = 0;
+  while (std::getline(file, raw)) {
+    lineNum++;
+    source.push_back({raw, lineNum});
+  }
+  const std::vector<SourceLine> expanded = preprocess(source);
+
   SymbolTable symbols;
   struct LineItem {
     int lineNum;
     std::string text;
   };
   std::vector<LineItem> instructions;
-  std::string raw;
-  int lineNum = 0;
 
   // Pass 1: Standalone labels & instruction collection
-  while (std::getline(file, raw)) {
-    lineNum++;
-    const std::string line = stripCommentsAndTrim(raw);
+  for (const SourceLine& item : expanded) {
+    const std::string line = stripCommentsAndTrim(item.text);
     if (line.empty()) continue;
 
     const size_t colon = line.find(':');
     if (colon != std::string::npos) {
       if (colon != line.size() - 1) {
-        throw std::runtime_error("Line " + std::to_string(lineNum) + ": inline labels not allowed, label must be on its own line");
+        throw std::runtime_error("Line " + std::to_string(item.line) + ": inline labels not allowed, label must be on its own line");
       }
       const std::string label = line.substr(0, colon);
       if (!isValidIdentifier(label)) {
-        throw std::runtime_error("Line " + std::to_string(lineNum) + ": invalid label identifier '" + label + "'");
+        throw std::runtime_error("Line " + std::to_string(item.line) + ": invalid label identifier '" + label + "'");
       }
       if (symbols.find(label) != symbols.end()) {
-        throw std::runtime_error("Line " + std::to_string(lineNum) + ": duplicate label '" + label + "'");
+        throw std::runtime_error("Line " + std::to_string(item.line) + ": duplicate label '" + label + "'");
       }
       symbols[label] = static_cast<uint32_t>(instructions.size());
     } else {
-      instructions.push_back({lineNum, line});
+      instructions.push_back({item.line, line});
     }
   }
 
