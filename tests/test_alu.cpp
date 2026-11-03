@@ -96,7 +96,7 @@ void test_multiplication(risc201::Alu& alu) {
     risc201::AluResult r5 = alu.execute(risc201::AluOp::MUL, 0x7FFFFFFF, 2);
     CHECK(r5.flags.v == true);
 
-    std::cout << "[PASS] Booth's Algorithm Multiplication tests\n";
+    std::cout << "[PASS] Signed Wallace multiplication and overflow tests\n";
 }
 
 void test_division(risc201::Alu& alu) {
@@ -201,6 +201,10 @@ void check_arithmetic(risc201::Alu& alu, uint32_t a, uint32_t b) {
     const int64_t product = sa * sb;
     require(detail::boothMultiply(a, b) == static_cast<uint64_t>(product),
             "full 64-bit Booth product", a, b);
+    require(detail::signedWallaceMultiply(a, b) == static_cast<uint64_t>(product),
+            "full signed Wallace product", a, b);
+    require(detail::wallaceMultiply(a, b) == uint64_t{a} * b,
+            "full unsigned Wallace product", a, b);
     const auto mul = alu.execute(AluOp::MUL, a, b);
     check_result(mul, static_cast<uint32_t>(product), false, signed_overflow(product),
                  "MUL", a, b);
@@ -251,7 +255,7 @@ void test_arithmetic_regressions(risc201::Alu& alu) {
         // Small divisors exercise long runs of nonzero quotient bits too.
         check_arithmetic(alu, a, (b & 0xffffu) + 1);
     }
-    std::cout << "[PASS] Arithmetic boundaries, CLA carries, Booth symmetry, "
+    std::cout << "[PASS] Arithmetic boundaries, CLA carries, multiplication symmetry, "
                  "restoring remainders and 20,000 random operand pairs\n";
 }
 
@@ -281,8 +285,84 @@ void test_shared_datapath() {
         }
     }
     CHECK(detail::boothMultiply(0x00ffffff, 0x00ffffff) == 0xfffffe000001ULL);
+    CHECK(detail::wallaceMultiply(0x00ffffff, 0x00ffffff) == 0xfffffe000001ULL);
     std::cout << "[PASS] Shared CLA extensions, exponent arithmetic, full-width "
                  "significand product and restoring steps\n";
+}
+
+void test_carry_save_and_wallace() {
+    using namespace risc201;
+    const uint64_t edges[] = {0, 1, 0xffffffff, 0x100000000,
+                              0x7fffffffffffffffULL, 0x8000000000000000ULL,
+                              0xffffffffffffffffULL, 0xaaaaaaaaaaaaaaaaULL};
+    for (auto a : edges) for (auto b : edges) {
+        CHECK(detail::add64(a, b) == a + b);
+        CHECK(detail::subtract64(a, b) == a - b);
+        for (auto c : edges) {
+            const auto compressed = detail::carrySave(a, b, c);
+            CHECK(compressed.sum + compressed.carry == a + b + c);
+        }
+    }
+    // Exercise each partial-product row, including the signed MSB row.
+    for (unsigned bit = 0; bit < 32; ++bit) {
+        const uint32_t a = uint32_t{1} << bit;
+        CHECK(detail::wallaceMultiply(a, 0xffffffffu) == uint64_t{a} * 0xffffffffu);
+        CHECK(detail::signedWallaceMultiply(a, 0xffffffffu) ==
+              static_cast<uint64_t>(-signed_value(a)));
+    }
+    std::mt19937 rng(332);
+    for (unsigned i = 0; i < 10000; ++i) {
+        const uint64_t a = (uint64_t{rng()} << 32) | rng();
+        const uint64_t b = (uint64_t{rng()} << 32) | rng();
+        const uint64_t c = (uint64_t{rng()} << 32) | rng();
+        const auto compressed = detail::carrySave(a, b, c);
+        CHECK(compressed.sum + compressed.carry == a + b + c);
+        CHECK(detail::add64(a, b) == a + b);
+        CHECK(detail::subtract64(a, b) == a - b);
+    }
+    std::cout << "[PASS] Carry-save conservation, 64-bit CLA carry/borrow and Wallace rows\n";
+}
+
+void test_newton_significands() {
+    using namespace risc201;
+    const auto verify = [](uint32_t n, uint32_t d) {
+        const auto result = detail::newtonDivideSignificands(n, d);
+        const uint64_t target = uint64_t{n} << 26;
+        require(result.exception == ExceptionCode::NONE && result.quotient == target / d &&
+                result.remainder == target % d && result.remainder < d &&
+                uint64_t{result.quotient} * d + result.remainder == target,
+                "Newton exact quotient/remainder", n, d);
+    };
+    const uint32_t edges[] = {0x800000, 0x800001, 0x800003, 0xaaaaaa,
+                              0xbfffff, 0xc00000, 0xfffffd, 0xfffffe, 0xffffff};
+    for (auto d : edges) {
+        verify(d, d);
+        verify(d + 1, d);
+        verify(2 * d - 1, d);
+    }
+    // The reciprocal estimate can miss on either side of the exact quotient.
+    // These require the decrement and increment residual-correction branches.
+    CHECK((uint64_t{0x11fbff0} * detail::newtonReciprocal(0xfd3514) >> 28) >
+          ((uint64_t{0x11fbff0} << 26) / 0xfd3514));
+    verify(0x11fbff0, 0xfd3514);
+    CHECK((uint64_t{0x11639f9} * detail::newtonReciprocal(0x961dce) >> 28) <
+          ((uint64_t{0x11639f9} << 26) / 0x961dce));
+    verify(0x11639f9, 0x961dce);
+    std::mt19937 rng(863);
+    for (uint32_t i = 0; i < 2048; ++i) {
+        const uint32_t d = 0x800000u | (i << 12) | (rng() & 0xfffu);
+        const uint32_t reciprocal = detail::newtonReciprocal(d);
+        const uint64_t dx = uint64_t{reciprocal} * (uint64_t{d} << 8);
+        const uint64_t square = uint64_t{1} << 62;
+        const uint64_t error = dx > square ? dx - square : square - dx;
+        // Fixed-point reciprocal error < 8 integer units in Q1.31.
+        CHECK(error < (uint64_t{d} << 11));
+        verify(d, d);
+        verify(d + 1, d);
+        verify(2 * d - 1, d);
+        verify(d + rng() % d, d);
+    }
+    std::cout << "[PASS] Newton reciprocal bounds and 8,221 exact significand divisions\n";
 }
 
 void test_logic_and_shift_regressions(risc201::Alu& alu) {
@@ -320,6 +400,8 @@ int main() {
     test_bitwise_and_shifts(alu);
     test_arithmetic_regressions(alu);
     test_shared_datapath();
+    test_carry_save_and_wallace();
+    test_newton_significands();
     test_logic_and_shift_regressions(alu);
 
     std::cout << "\nAll ALU hardware algorithm tests PASSED successfully!\n";

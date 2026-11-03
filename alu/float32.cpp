@@ -162,9 +162,9 @@ Result multiply(uint32_t aWord, uint32_t bWord, RoundingMode mode) {
     normalize(a);
     normalize(b);
 
-    // Both normalized significands are positive signed 32-bit values. Reuse
-    // Booth's COMPLETE product; the public integer MUL's low word is insufficient.
-    const uint64_t product = detail::boothMultiply(a.significand, b.significand);
+    // The shared Wallace tree preserves the complete 48-bit significand product;
+    // the public integer MUL's low word would be insufficient.
+    const uint64_t product = detail::wallaceMultiply(a.significand, b.significand);
     // The product's binary point is after bit 46. Retain 24+3 bits.
     return roundPack(sign, detail::addSigned32(a.exponent, b.exponent),
                      shiftRightJam(product, 20), mode);
@@ -182,23 +182,17 @@ Result divide(uint32_t aWord, uint32_t bWord, RoundingMode mode) {
     normalize(a);
     normalize(b);
     int exponent = detail::subtractSigned32(a.exponent, b.exponent);
-    uint64_t remainder = a.significand;
-    if (remainder < b.significand) {
-        remainder <<= 1;
+    uint32_t numerator = a.significand;
+    if (numerator < b.significand) {
+        numerator <<= 1;
         exponent = detail::subtractSigned32(exponent, 1);
     }
 
-    // Reuse integer division's CLA subtract/test/restore step, but generate
-    // fractional quotient bits rather than truncating to an integer quotient.
-    uint64_t quotient = 0;
-    for (int bit = 26; bit >= 0; --bit) {
-        quotient <<= 1;
-        const auto step = detail::restoringStep(remainder, b.significand);
-        remainder = step.remainder;
-        quotient |= static_cast<uint64_t>(step.quotientBit);
-        if (bit != 0) remainder <<= 1;
-    }
-    if (remainder != 0) quotient |= 1; // All further quotient bits form sticky.
+    // NR refines the reciprocal using shared Wallace/CLA primitives. Exact
+    // residual correction recovers the 27 quotient bits and the true sticky bit.
+    const auto divided = detail::newtonDivideSignificands(numerator, b.significand);
+    uint64_t quotient = divided.quotient;
+    if (divided.remainder != 0) quotient |= 1;
     return roundPack(sign, exponent, quotient, mode);
 }
 
