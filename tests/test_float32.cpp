@@ -55,6 +55,16 @@ void directedTests() {
         expect(1, 0x40600000, 0x40000000, mode, 0x3fc00000, 0); // 3.5 - 2 = 1.5
         expect(2, 0xbfc00000, 0x40000000, mode, 0xc0400000, 0);
         expect(3, 0x40400000, 0x40000000, mode, 0x3fc00000, 0);
+        // Recurring quotients and reciprocals immediately around one exercise
+        // Newton precision plus final exact residual correction/rounding.
+        expect(3, 0x3f800000, 0x40400000, mode,
+               mode == 0 || mode == 2 ? 0x3eaaaaab : 0x3eaaaaaa, inexact);
+        expect(3, 0xbf800000, 0x40400000, mode,
+               mode == 0 || mode == 3 ? 0xbeaaaaab : 0xbeaaaaaa, inexact);
+        expect(3, 0x3f800000, 0x3f800001, mode,
+               mode == 2 ? 0x3f7fffff : 0x3f7ffffe, inexact);
+        expect(3, 0x3f800000, 0x3f7fffff, mode,
+               mode == 0 || mode == 2 ? 0x3f800001 : 0x3f800000, inexact);
         // Halfway cases: even retained LSB stays, odd retained LSB increments.
         expect(0, 0x3f800000, 0x33800000, mode,
                mode == 2 ? 0x3f800001 : 0x3f800000, inexact);

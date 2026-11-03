@@ -1,6 +1,8 @@
 #include "alu/alu.hpp"
 #include "alu/float32.hpp"
 #include <cstring>
+#include <array>
+#include <cassert>
 
 namespace risc201 {
 
@@ -184,6 +186,24 @@ int32_t detail::addSigned32(int32_t a, int32_t b) {
     return value;
 }
 
+uint64_t detail::add64(uint64_t a, uint64_t b) {
+    bool carry, overflow;
+    const uint32_t low = claAdd(static_cast<uint32_t>(a), static_cast<uint32_t>(b),
+                                0, carry, overflow);
+    const uint32_t high = claAdd(static_cast<uint32_t>(a >> 32),
+                                 static_cast<uint32_t>(b >> 32), carry, carry, overflow);
+    return (uint64_t{high} << 32) | low;
+}
+
+uint64_t detail::subtract64(uint64_t a, uint64_t b) {
+    bool carry, overflow;
+    const uint32_t low = claAdd(static_cast<uint32_t>(a), ~static_cast<uint32_t>(b),
+                                1, carry, overflow);
+    const uint32_t high = claAdd(static_cast<uint32_t>(a >> 32),
+                                 ~static_cast<uint32_t>(b >> 32), carry, carry, overflow);
+    return (uint64_t{high} << 32) | low;
+}
+
 int32_t detail::subtractSigned32(int32_t a, int32_t b) {
     const uint32_t word = subtract32(static_cast<uint32_t>(a), static_cast<uint32_t>(b));
     int32_t value;
@@ -226,8 +246,46 @@ uint64_t detail::boothMultiply(uint32_t a, uint32_t b) {
     return (uint64_t{static_cast<uint32_t>(A)} << 32) | Q;
 }
 
-uint32_t Alu::booth_mul(uint32_t a, uint32_t b, bool& overflow) {
-    const uint64_t product = detail::boothMultiply(a, b);
+detail::CarrySaveResult detail::carrySave(uint64_t a, uint64_t b, uint64_t c) {
+    return {a ^ b ^ c, ((a & b) | (a & c) | (b & c)) << 1};
+}
+
+uint64_t detail::wallaceMultiply(uint32_t a, uint32_t b) {
+    // One AND-generated shifted row per multiplier bit. Every compression
+    // layer consumes only the PREVIOUS layer, modeling parallel 3:2 reduction.
+    std::array<uint64_t, 32> rows{};
+    for (unsigned bit = 0; bit < 32; ++bit) {
+        rows[bit] = ((b >> bit) & 1) ? uint64_t{a} << bit : 0;
+    }
+    unsigned count = 32;
+    while (count > 2) {
+        std::array<uint64_t, 32> next{};
+        unsigned at = 0, i = 0;
+        for (; i + 2 < count; i += 3) {
+            const auto compressed = carrySave(rows[i], rows[i + 1], rows[i + 2]);
+            next[at++] = compressed.sum;
+            next[at++] = compressed.carry;
+        }
+        for (; i < count; ++i) next[at++] = rows[i];
+        rows = next;
+        count = at;
+    }
+    // The sole carry-propagating sum is the final pair of rows.
+    return add64(rows[0], rows[1]);
+}
+
+uint64_t detail::signedWallaceMultiply(uint32_t a, uint32_t b) {
+    uint64_t product = wallaceMultiply(a, b);
+    // Interpret the unsigned words as signed: (a-sa*2^32)*(b-sb*2^32).
+    // The sa*sb*2^64 term vanishes modulo 2^64. Use CLA subtraction for
+    // the two remaining sign corrections; no signed host multiplication.
+    if (a & 0x80000000u) product = subtract64(product, uint64_t{b} << 32);
+    if (b & 0x80000000u) product = subtract64(product, uint64_t{a} << 32);
+    return product;
+}
+
+uint32_t Alu::wallace_mul(uint32_t a, uint32_t b, bool& overflow) {
+    const uint64_t product = detail::signedWallaceMultiply(a, b);
     const uint32_t low = static_cast<uint32_t>(product);
     const uint32_t expectedHigh = (low >> 31) ? 0xffffffffu : 0u;
     overflow = (product >> 32) != expectedHigh;
@@ -245,7 +303,7 @@ detail::UnsignedDivisionResult detail::restoringDivide(uint32_t dividend, uint32
         return {0, 0, ExceptionCode::DIV_BY_ZERO};
     }
     // The shared restoring step models the 33-bit trial subtraction and
-    // restoration through the same CLA extension used by Booth multiplication.
+    // restoration through the shared 33-bit CLA extension.
     uint64_t A = 0;
     uint32_t Q = dividend;
 
@@ -265,6 +323,46 @@ uint32_t Alu::unsigned_div(uint32_t dividend, uint32_t divisor, ExceptionCode& e
     const auto result = detail::restoringDivide(dividend, divisor);
     exc = result.exception;
     return result.quotient;
+}
+
+uint32_t detail::newtonReciprocal(uint32_t divisor) {
+    assert(divisor >= 0x00800000u && divisor < 0x01000000u);
+    // S=2^31; D/S is the normalized divisor, x/S its reciprocal estimate.
+    // Start at 1/2 as in Sarangi 8.6.3. All products retain all 64 bits before
+    // truncation. Six iterations include margin for fixed-point truncation.
+    const uint32_t d = divisor << 8;
+    uint32_t x = 0x40000000u;
+    for (unsigned i = 0; i < 6; ++i) {
+        const uint32_t dx = static_cast<uint32_t>(wallaceMultiply(d, x) >> 31);
+        // 2.0*S = 2^32: modulo subtraction gives its positive 32-bit correction.
+        const uint32_t correction = subtract32(0, dx);
+        x = static_cast<uint32_t>(wallaceMultiply(x, correction) >> 31);
+    }
+    return x;
+}
+
+detail::UnsignedDivisionResult detail::newtonDivideSignificands(uint32_t numerator,
+                                                               uint32_t divisor) {
+    assert(numerator >= divisor && uint64_t{numerator} < (uint64_t{divisor} << 1));
+    const uint32_t reciprocal = newtonReciprocal(divisor);
+    // numerator has its binary point at bit 23, reciprocal at bit 31.
+    // Retaining 27 quotient bits therefore requires a shift of 23+31-26 = 28.
+    uint32_t q = static_cast<uint32_t>(wallaceMultiply(numerator, reciprocal) >> 28);
+    const uint64_t target = uint64_t{numerator} << 26;
+    uint64_t product = wallaceMultiply(q, divisor);
+    // Six iterations bound the untruncated estimate's error below one quotient
+    // unit (see docs/alu.md). Its floor differs by at most one. Correct exactly
+    // with full-width products/remainders, not a fallback to restoring division.
+    if (product > target) {
+        q = subtract32(q, 1);
+        product = subtract64(product, divisor);
+    } else if (subtract64(target, product) >= divisor) {
+        q = add32(q, 1);
+        product = add64(product, divisor);
+    }
+    const uint64_t remainder = subtract64(target, product);
+    assert(product <= target && remainder < divisor);
+    return {q, static_cast<uint32_t>(remainder), ExceptionCode::NONE};
 }
 
 AluResult Alu::execute(AluOp op, uint32_t a, uint32_t b) {
@@ -300,7 +398,7 @@ AluResult Alu::execute(AluOp op, uint32_t a, uint32_t b) {
             res.flags.v = overflow;
             break;
         case AluOp::MUL:
-            res.value = booth_mul(a, b, overflow);
+            res.value = wallace_mul(a, b, overflow);
             res.flags.c = false; 
             res.flags.v = overflow;
             break;

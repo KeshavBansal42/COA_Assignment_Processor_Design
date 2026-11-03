@@ -28,7 +28,7 @@ struct Result {
 
 // Operands/results are raw IEEE binary32 words. All NaNs return the canonical
 // quiet NaN 0x7FC00000; signaling NaN inputs also set invalid. Arithmetic uses
-// shared CLA/Booth/restoring primitives from alu.cpp, never Alu::execute recursion.
+// shared CLA/Wallace/Newton primitives from alu.cpp, never Alu::execute recursion.
 Result add(uint32_t a, uint32_t b, RoundingMode mode = RoundingMode::NearestEven);
 Result subtract(uint32_t a, uint32_t b, RoundingMode mode = RoundingMode::NearestEven);
 Result multiply(uint32_t a, uint32_t b, RoundingMode mode = RoundingMode::NearestEven);

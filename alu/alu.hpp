@@ -11,15 +11,28 @@ namespace detail {
 uint32_t claAdd(uint32_t a, uint32_t b, uint32_t carryIn, bool& carryOut, bool& overflow);
 uint32_t add32(uint32_t a, uint32_t b);
 uint32_t subtract32(uint32_t a, uint32_t b);
+// Two 32-bit CLA blocks chained by their carry (arithmetic modulo 2^64).
+uint64_t add64(uint64_t a, uint64_t b);
+uint64_t subtract64(uint64_t a, uint64_t b);
 int32_t addSigned32(int32_t a, int32_t b);
 int32_t subtractSigned32(int32_t a, int32_t b);
 
 // Low 33 bits of a +/- b, using the 32-bit CLA plus one extension bit.
 uint64_t addSubtract33(uint64_t a, uint64_t b, bool subtract);
 
-// Complete signed 32x32 product, represented as 64 two's-complement bits.
-// Integer MUL selects the low word; FP MUL retains all 48 significand bits.
+// Baseline reference: complete signed 32x32 product as 64 two's-complement bits.
+// Active integer/FP instructions use Wallace multiplication below.
 uint64_t boothMultiply(uint32_t a, uint32_t b);
+
+struct CarrySaveResult {
+    uint64_t sum;
+    uint64_t carry; // Already shifted left by one bit.
+};
+
+// Three rows -> two, with no carry propagation; equality is modulo 2^64.
+CarrySaveResult carrySave(uint64_t a, uint64_t b, uint64_t c);
+uint64_t wallaceMultiply(uint32_t a, uint32_t b); // Unsigned, complete product.
+uint64_t signedWallaceMultiply(uint32_t a, uint32_t b); // Two's-complement product.
 
 struct DivisionStep {
     uint64_t remainder;
@@ -27,7 +40,7 @@ struct DivisionStep {
 };
 
 // One subtract/test/restore step. divisor != 0 and partial < 2*divisor.
-// Both integer and fractional division build their quotient with this step.
+// Integer DIV builds its quotient with this step; FDIV uses Newton below.
 DivisionStep restoringStep(uint64_t partial, uint32_t divisor);
 
 // Internal algorithm result for direct arithmetic verification.
@@ -39,6 +52,12 @@ struct UnsignedDivisionResult {
 };
 
 UnsignedDivisionResult restoringDivide(uint32_t dividend, uint32_t divisor);
+
+// Q1.31 reciprocal for a normalized 24-bit divisor in [2^23,2^24).
+uint32_t newtonReciprocal(uint32_t divisor);
+// Exact floor(numerator * 2^26 / divisor) and remainder, after NR correction.
+// Preconditions: normalized divisor; divisor <= numerator < 2*divisor.
+UnsignedDivisionResult newtonDivideSignificands(uint32_t numerator, uint32_t divisor);
 
 } // namespace detail
 
@@ -52,7 +71,7 @@ public:
 
 private:
     // Structural gate-level hardware simulations
-    uint32_t booth_mul(uint32_t a, uint32_t b, bool& overflow);
+    uint32_t wallace_mul(uint32_t a, uint32_t b, bool& overflow);
     uint32_t unsigned_div(uint32_t dividend, uint32_t divisor, ExceptionCode& exc);
 };
 

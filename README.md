@@ -13,7 +13,7 @@ CSC-201 Computer Organization & Architecture, Autumn 2026.
 |---|---|
 | `isa_spec/isa201.h` | the frozen ISA: opcodes, instruction formats, encoding helpers, exception codes and the types the modules share |
 | `simulator_core/` | CPU, the sequential and overlapped pipelines, CLI and debugger |
-| `alu/` | carry-lookahead adder, Booth multiply, restoring divide, explicit binary32 arithmetic |
+| `alu/` | CLA, carry-save/Wallace multiplication, restoring integer division, Newton-Raphson binary32 division |
 | `control_unit/` | microcoded control unit, horizontal ROM and vertical microprogram |
 | `assembler/` | two-pass assembler and the `risc201-asm` CLI |
 | `disassembler/` | disassembler and the `risc201-disasm` CLI |
@@ -54,7 +54,8 @@ The evaluation harness prints the pipeline and microcode comparison numbers:
 Floating-point arithmetic is available as a four-instruction IEEE 754 binary32
 extension (`FADD`, `FSUB`, `FMUL`, `FDIV`). Registers hold raw float bit patterns;
 the implementation handles arithmetic, rounding and special values using shared
-CLA, full-width Booth and restoring-division primitives. CPU instructions use
+CLA and carry-save/Wallace primitives. FDIV uses fixed-point Newton-Raphson
+with exact residual correction; integer DIV remains restoring. CPU instructions use
 nearest-even; the FP module exposes all four
 rounding modes and separate arithmetic status. See `docs/alu.md`, `docs/isa_spec.md`
 and `tests/programs/float_demo.s` for details. The
