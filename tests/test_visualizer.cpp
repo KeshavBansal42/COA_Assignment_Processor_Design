@@ -50,7 +50,16 @@ int main() {
   want(frame.find("STACK") != std::string::npos, "stack panel");
   want(frame.find("SP = 0x00000FFF") != std::string::npos, "stack pointer after the push");
   want(frame.find("0x0FFF  0x0000000A") != std::string::npos, "pushed value on the stack");
+  want(frame.find("mode fixed") != std::string::npos, "fixed stack mode");
   want(frame.find("HALTED") != std::string::npos, "halted state");
+
+  // Dynamic mode moves the floor to the heap high-water mark and says so.
+  cpu.setDynamicStack(true);
+  const std::string dynamic = renderFrame(cpu, options, nullptr);
+  want(dynamic.find("stack dynamic") != std::string::npos, "dynamic stack header");
+  want(dynamic.find("mode dynamic") != std::string::npos, "dynamic stack mode");
+  want(dynamic.find("stack floor 0x0800") != std::string::npos, "dynamic stack floor");
+  want(dynamic.find("heap 0 words used") != std::string::npos, "dynamic heap usage");
 
   std::cout << "visualizer frame checks, problems = " << problems << "\n";
   assert(problems == 0);

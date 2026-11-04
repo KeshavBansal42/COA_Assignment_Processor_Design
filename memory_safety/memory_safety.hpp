@@ -62,10 +62,14 @@ using MemorySafetyImpl = MemorySafety;
 std::string exceptionToString(ExceptionCode code);
 
 // draw ascii visual of stack memory to a specific stream (redirectable / testable)
-void renderStackAscii(std::ostream& out, const uint32_t* memory, uint32_t sp, uint32_t maxDepth = 16);
+// stackFloor is the lowest address the stack may use: 0xC00 in fixed mode, or
+// the heap high-water mark in dynamic mode.
+void renderStackAscii(std::ostream& out, const uint32_t* memory, uint32_t sp, uint32_t maxDepth = 16,
+                      uint32_t stackFloor = kStackBase);
 
 // overload writing to std::cout for backwards compatibility with Keshav's CLI
-void renderStackAscii(const uint32_t* memory, uint32_t sp, uint32_t maxDepth = 16);
+void renderStackAscii(const uint32_t* memory, uint32_t sp, uint32_t maxDepth = 16,
+                      uint32_t stackFloor = kStackBase);
 
 // One logged exception entry
 struct ExceptionRecord {

@@ -129,6 +129,15 @@ bool Cli::execute(const std::string& line) {
     commandStack(depth);
   } 
 
+  else if (command == "dynamic") {
+    std::string state;
+    if (input >> state) {
+      commandDynamic(state);
+    } else {
+      out_ << "usage: dynamic <on|off>\n";
+    }
+  }
+
   else if (command == "mode") {
     std::string name;
     if (input >> name) {
@@ -272,8 +281,24 @@ void Cli::commandMem(uint32_t start, uint32_t count) const {
 
 //added after memory_safety
 void Cli::commandStack(int maxDepth) const {
-  // run our ascii visualizer
-  renderStackAscii(cpu_.rawMemory(), cpu_.sp(), maxDepth);
+  // The stack floor follows the heap high-water mark in dynamic mode.
+  renderStackAscii(cpu_.rawMemory(), cpu_.sp(), maxDepth, cpu_.memorySafety().heapTop());
+}
+
+void Cli::commandDynamic(const std::string& state) {
+  if (state == "on") {
+    cpu_.setDynamicStack(true);
+  } else if (state == "off") {
+    cpu_.setDynamicStack(false);
+  } else {
+    out_ << "usage: dynamic <on|off>\n";
+    return;
+  }
+  std::ostringstream floor;
+  floor << std::hex << std::uppercase << std::setw(4) << std::setfill('0')
+        << cpu_.memorySafety().heapTop();
+  out_ << "dynamic stack " << (cpu_.dynamicStack() ? "on" : "off") << "  stack floor 0x"
+       << floor.str() << "\n";
 }
 
 void Cli::commandMode(const std::string& name) {
@@ -521,6 +546,7 @@ void Cli::printHelp() const {
   out_ << "unwatch <addr|label> remove a watchpoint\n";
   out_ << "watches             list the watchpoints\n";
   out_ << "stack [n]           show the top n stack words, default 16\n";
+  out_ << "dynamic <on|off>    let the stack grow into the data region\n";
   out_ << "mode <name>         sequential, 4stage or 6stage pipeline\n";
   out_ << "micro <name>        horizontal or vertical microcode\n";
   out_ << "microtrace [addr]   show the microPC steps for an instruction\n";

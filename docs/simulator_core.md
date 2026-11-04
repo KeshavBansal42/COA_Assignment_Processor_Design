@@ -98,7 +98,7 @@ An exception stops the machine and `run()` returns.
 
 | Code | Raised in | When |
 |---|---|---|
-| `STACK_OVERFLOW` | EX | PUSH or CALL would take SP below `0xC00` |
+| `STACK_OVERFLOW` | EX | PUSH or CALL would take SP below the stack floor (`0xC00` fixed, or the heap high-water mark in dynamic mode) |
 | `STACK_UNDERFLOW` | EX | POP or RET would take SP above `0x1000` |
 | `INVALID_MEM_ACCESS` | EX | a load or store outside `0x000`-`0xFFF`, or a store into the code region |
 | `DIV_BY_ZERO` | EX | DIV with a zero divisor, reported by the ALU |
@@ -111,7 +111,8 @@ The executors take their collaborators by reference and never construct them:
 
 - `Alu` (`alu/alu.hpp`) for arithmetic in EX
 - `ControlUnit` (`control_unit/control_unit.hpp`) for decode in ID/OF
-- `MemorySafety` (`memory_safety/memory_safety.hpp`) for the stack and memory checks in EX
+- `MemorySafety` (`memory_safety/memory_safety.hpp`) for the stack and memory checks in EX,
+  including the optional dynamic stack whose floor follows the heap high-water mark
 
 `Cpu` owns one of each: the structural `Alu`, the microcoded `ControlUnit` and
 `MemorySafetyImpl`. Because they are injected rather than built inside the pipeline, a

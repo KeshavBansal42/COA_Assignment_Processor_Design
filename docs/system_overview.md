@@ -69,8 +69,8 @@ Programs enter the machine in two ways:
 | Interactive CLI for registers, execution, pipeline | `simulator_core/cli.cpp`, `docs/cli.md` |
 | Step-by-step simulator with debugger | `simulator_core/debugger.cpp`, `simulator_core/cli.cpp` |
 | Stack preprocessor macro expansion | `assembler/preprocessor.cpp`, `docs/preprocessor.md` |
-| Stack boundary checks and runtime exceptions | `memory_safety/`, `docs/memory_safety_interaction.md` |
-| ASCII stack memory frame renderer | `memory_safety` `renderStackAscii`, `visualizer/` |
+| Stack boundary checks, dynamic stack/heap split, runtime exceptions | `memory_safety/`, `docs/memory_safety_interaction.md` |
+| ASCII stack memory frame renderer with the live stack floor | `memory_safety` `renderStackAscii`, `visualizer/` |
 | Microcode drives the CPU, microPC display | `control_unit/`, CLI `microtrace`, `docs/vertical_microcode.md` |
 | ALU drives all arithmetic/shift/logical ops | `ControlSignals::aluOp` from both control encodings |
 | Evaluation across pipelines, microcode and programs | `eval/eval_matrix.cpp`, `docs/evaluation_matrix.md` |

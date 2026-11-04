@@ -99,6 +99,15 @@ public:
   // The overlapped pipeline in use, for the visualizer and the evaluation run.
   const CyclePipeline& cyclePipeline() const;
 
+  // Memory safety state, so the CLI and the visualizer can show the stack
+  // floor and the heap/stack split.
+  const MemorySafetyImpl& memorySafety() const { return safety_; }
+
+  // Switches the stack between the fixed 0xC00 floor and a floor that follows
+  // the heap high-water mark, letting the stack grow into the data region.
+  void setDynamicStack(bool enable) { safety_.enableDynamicStack(enable); }
+  bool dynamicStack() const { return safety_.isDynamicStackEnabled(); }
+
   // The entire state and memory of our CPU.
 private:
   std::array<uint32_t, kRegisterCount> registers_{};

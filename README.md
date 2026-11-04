@@ -17,8 +17,8 @@ CSC-201 Computer Organization & Architecture, Autumn 2026.
 | `control_unit/` | microcoded control unit, horizontal ROM and vertical microprogram |
 | `assembler/` | stack macro preprocessor, two-pass assembler and the `risc201-asm` CLI |
 | `disassembler/` | disassembler and the `risc201-disasm` CLI |
-| `memory_safety/` | stack and memory range checks, exception strings, ASCII stack view |
-| `visualizer/` | the animated code and machine state view, `risc201-viz` |
+| `memory_safety/` | stack and memory range checks, dynamic stack/heap boundary, exception strings, ASCII stack view |
+| `visualizer/` | the animated code and machine state view including the live stack floor, `risc201-viz` |
 | `eval/` | the pipeline and microcode evaluation harness, `risc201-eval` |
 | `tests/` | unit and integration tests, `tests/programs/` holds the demo programs |
 | `docs/` | ISA specification, design and evaluation documents |
@@ -36,7 +36,9 @@ CSC-201 Computer Organization & Architecture, Autumn 2026.
 Type `help` inside the simulator for the command list, or read `docs/cli.md`.
 `mode` picks the pipeline, `micro` picks the control encoding, `cycles` shows
 the counters, `stack` renders the ASCII stack frames and `microtrace` prints the
-microPC stepping through the control store for one instruction.
+microPC stepping through the control store for one instruction. `dynamic on`
+switches the stack from the fixed `0xC00` floor to one that follows the heap
+high-water mark, so the stack can grow into the data region.
 
 The assembler expands `.macro` / `.endmacro` definitions before its two passes,
 which is how multi-instruction full-descending stack sequences are written
@@ -47,6 +49,7 @@ registers, the stack and the pipeline:
 
     ./build/risc201-viz tests/programs/loop.hex --mode 6stage
     ./build/risc201-viz tests/programs/recursion.hex --micro vertical
+    ./build/risc201-viz tests/programs/recursion.hex --dynamic-stack
 
 The evaluation harness prints the pipeline and microcode comparison numbers:
 
@@ -80,8 +83,9 @@ horizontal ROM or the vertical microprogram, and both decode identically
 (`tests/test_microcode.cpp`). Exceptions are raised and reported, the CLI and
 debugger work (including in the overlapped pipelines), the assembler expands
 full-descending stack macros and round-trips with the disassembler, the
-`microtrace` command displays the microPC walk, and the visualizer and
-evaluation harness are in place.
+`microtrace` command displays the microPC walk, the dynamic stack can grow into
+the data region up to the heap high-water mark, and the visualizer and evaluation
+harness are in place.
 
 The real modules are wired into `Cpu`: the structural ALU (`alu/`), the
 microcoded control unit (`control_unit/`), the memory safety checks

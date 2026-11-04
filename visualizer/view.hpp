@@ -27,6 +27,9 @@ struct MachineSnapshot {
   uint32_t pc = 0;
   uint32_t sp = 0;
   Flags flags{};
+  // Stack words captured around SP, addressed from stackLow upwards. The
+  // window reaches below SP so a push can be compared with the previous frame.
+  uint32_t stackLow = 0;
   std::vector<uint32_t> stack;
 };
 

@@ -102,6 +102,23 @@ void testMicroTraceCommand() {
   assert(illegal.find("ILLEGAL_INSTRUCTION") != std::string::npos);
 }
 
+void testDynamicCommand() {
+  Cpu cpu;
+
+  const std::string on = runCommands(cpu, "dynamic on\n");
+  assert(on.find("dynamic stack on  stack floor 0x0800") != std::string::npos);
+  assert(cpu.dynamicStack());
+  assert(cpu.memorySafety().heapTop() == kDataBase);
+
+  const std::string off = runCommands(cpu, "dynamic off\n");
+  assert(off.find("dynamic stack off  stack floor 0x0C00") != std::string::npos);
+  assert(!cpu.dynamicStack());
+  assert(cpu.memorySafety().heapTop() == kStackBase);
+
+  const std::string bad = runCommands(cpu, "dynamic maybe\n");
+  assert(bad.find("usage: dynamic <on|off>") != std::string::npos);
+}
+
 void testMissingFile() {
   Cpu cpu;
   const std::string output = runCommands(cpu, "load no_such_program.hex\n");
@@ -131,6 +148,7 @@ int main() {
   testStepCommand();
   testMemCommand();
   testMicroTraceCommand();
+  testDynamicCommand();
   testMissingFile();
   testUnknownCommand();
   testQuitEndsTheSession();

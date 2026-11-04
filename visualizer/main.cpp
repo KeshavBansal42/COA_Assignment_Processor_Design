@@ -2,6 +2,7 @@
 //
 // Usage: risc201-viz <program.s|program.hex> [--mode sequential|4stage|6stage]
 //                    [--micro horizontal|vertical] [--speed ms] [--once]
+//                    [--dynamic-stack]
 //
 // Shows the code the machine is working on, what the last step changed in the
 // registers and the stack, and the state of the machine (PC, SP, flags, cycle
@@ -80,7 +81,8 @@ ControlMode parseControl(const std::string& name, bool& ok) {
 
 void printUsage() {
   std::cerr << "usage: risc201-viz <program.s|program.hex> [--mode sequential|4stage|6stage]\n"
-            << "                   [--micro horizontal|vertical] [--speed ms] [--once]\n";
+            << "                   [--micro horizontal|vertical] [--speed ms] [--once]\n"
+            << "                   [--dynamic-stack]\n";
 }
 
 }  // namespace
@@ -91,6 +93,7 @@ int main(int argc, char** argv) {
   ControlMode control = ControlMode::Horizontal;
   int speedMs = 120;
   bool once = false;
+  bool dynamicStack = false;
 
   for (int i = 1; i < argc; ++i) {
     const std::string arg = argv[i];
@@ -115,6 +118,8 @@ int main(int argc, char** argv) {
       }
     } else if (arg == "--once") {
       once = true;
+    } else if (arg == "--dynamic-stack") {
+      dynamicStack = true;
     } else if (arg.rfind("--", 0) == 0) {
       std::cerr << "unknown option " << arg << "\n";
       printUsage();
@@ -145,6 +150,7 @@ int main(int argc, char** argv) {
   cpu.load(words);
   cpu.setControlMode(control);
   cpu.setPipelineMode(mode);
+  cpu.setDynamicStack(dynamicStack);
 
   ViewOptions options;
   options.program = program;

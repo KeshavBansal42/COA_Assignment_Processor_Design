@@ -121,7 +121,7 @@ std::string exceptionToString(ExceptionCode code) {
     case ExceptionCode::NONE:
       return "No exception";
     case ExceptionCode::STACK_OVERFLOW:
-      return "Stack overflow (SP went below 0xC00)";
+      return "Stack overflow (SP crossed the stack floor)";
     case ExceptionCode::STACK_UNDERFLOW:
       return "Stack underflow (SP went above 0x1000)";
     case ExceptionCode::INVALID_MEM_ACCESS:
@@ -153,9 +153,10 @@ void ExceptionTracker::reset() {
 }
 
 // render ascii stack frame to a stream
-void renderStackAscii(std::ostream& out, const uint32_t* memory, uint32_t sp, uint32_t maxDepth) {
-  // print warning in red if sp cross danger line
-  if (sp < kStackBase) {
+void renderStackAscii(std::ostream& out, const uint32_t* memory, uint32_t sp, uint32_t maxDepth,
+                      uint32_t stackFloor) {
+  // print warning in red if sp reaches the stack floor (dynamic or fixed)
+  if (sp <= stackFloor) {
     out << "\033[31m*** STACK OVERFLOW DANGER ***\033[0m\n";
   }
 
@@ -174,7 +175,7 @@ void renderStackAscii(std::ostream& out, const uint32_t* memory, uint32_t sp, ui
     uint32_t currentAddr = startAddr - 1 - i;
     
     // stop printing if we cross bottom boundary
-    if (currentAddr < kDataBase) break;
+    if (currentAddr < stackFloor) break;
     
     uint32_t val = memory[currentAddr];
     
@@ -200,8 +201,8 @@ void renderStackAscii(std::ostream& out, const uint32_t* memory, uint32_t sp, ui
 }
 
 // render ascii stack frame to std::cout (backward compatible)
-void renderStackAscii(const uint32_t* memory, uint32_t sp, uint32_t maxDepth) {
-  renderStackAscii(std::cout, memory, sp, maxDepth);
+void renderStackAscii(const uint32_t* memory, uint32_t sp, uint32_t maxDepth, uint32_t stackFloor) {
+  renderStackAscii(std::cout, memory, sp, maxDepth, stackFloor);
 }
 
 }  // namespace risc201

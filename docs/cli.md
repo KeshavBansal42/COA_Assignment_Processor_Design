@@ -55,6 +55,7 @@ line is `name address` or `name = address`, and comments work the same way:
 | `unwatch <address\|label>` | remove a watchpoint |
 | `watches` | list the watchpoints |
 | `stack [n]` | render the top n stack words as an ASCII stack frame |
+| `dynamic <on\|off>` | let the stack grow into the data region, or restore the fixed `0xC00` floor |
 | `mode <name>` | pick `sequential`, `4stage` or `6stage` (restarts the program) |
 | `micro <name>` | pick `horizontal` or `vertical` control memory |
 | `microtrace [address]` | show the microPC stepping through an instruction |
@@ -113,6 +114,16 @@ decimal values, and a frame boundary guessed from a saved return address:
     ...
     +-----------------------------------------+
 
+By default the stack floor is fixed at `0xC00`. `dynamic on` moves the floor to the
+heap high-water mark (`0x800` while the heap is empty), so the stack can grow through
+the data region; `dynamic off` restores the fixed floor. The `stack` view renders down
+to the current floor, and the red overflow warning follows it too.
+
+    > dynamic on
+    dynamic stack on  stack floor 0x0800
+    > dynamic off
+    dynamic stack off  stack floor 0x0C00
+
 ## A demo run
 
     > load tests/programs/loop.hex
@@ -138,8 +149,9 @@ The stack fault program shows the exception path:
     PC = 0x00000001  SP = 0x00000c00
 
 The CALL at 0x001 calls itself, so each pass pushes another return address until SP
-would drop below 0xC00. PC is left on the instruction that faulted and nothing was
-written back.
+would drop below the stack floor: 0xC00 in the default fixed mode (the run above), or
+the heap top after `dynamic on` (the same program then stops at SP 0x800). PC is left
+on the instruction that faulted and nothing was written back.
 
 ## A debug session
 

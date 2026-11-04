@@ -82,14 +82,17 @@ These clarify existing behavior without changing instruction encodings. See
 | Data | 0x800 - 0xBFF | globals and heap |
 | Stack | 0xC00 - 0xFFF | initial SP = 0x1000 |
 
-SP below 0xC00 is a stack overflow, SP above 0x1000 is a stack underflow.
+SP below the stack floor is a stack overflow, SP above 0x1000 is a stack underflow.
+The floor is 0xC00 in the default fixed mode. With the dynamic stack enabled it
+is the heap high-water mark (0x800 while the heap is empty), so the stack may
+grow through the data region until it meets the heap.
 
 ## Exception codes
 
 | Code | Name | Raised when |
 |---|---|---|
 | 0 | NONE | never, means no exception |
-| 1 | STACK_OVERFLOW | PUSH/CALL would take SP below 0xC00 |
+| 1 | STACK_OVERFLOW | PUSH/CALL would take SP below the stack floor (0xC00 fixed, or the heap top in dynamic mode) |
 | 2 | STACK_UNDERFLOW | POP/RET would take SP above 0x1000 |
 | 3 | INVALID_MEM_ACCESS | load/store outside 0x000-0xFFF, or a write into the code region |
 | 4 | DIV_BY_ZERO | DIV with rt = 0 |

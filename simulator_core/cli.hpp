@@ -26,6 +26,7 @@ class Cli {
   void commandMem(uint32_t start, uint32_t count) const;
 
   void commandStack(int maxDepth) const; // added after memory_safety
+  void commandDynamic(const std::string& state);
 
   void commandMode(const std::string& name);
   void commandMicro(const std::string& name);

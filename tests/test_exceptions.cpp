@@ -51,6 +51,23 @@ static void testStackOverflow() {
   assert(cpu.sp() == kStackBase);
 }
 
+static void testDynamicStackGrowsIntoDataRegion() {
+  Cpu cpu;
+  cpu.setDynamicStack(true);
+  cpu.load({
+      encodeI(Opcode::LDI, 1, 0, 1),   // 0
+      encodeI(Opcode::PUSH, 1, 0, 0),  // 1: loop
+      encodeJ(Opcode::JMP, -2),        // 2: back to 1
+  });
+  cpu.run();
+
+  // With the heap empty the floor is the data base, so the stack may pass the
+  // fixed 0xC00 boundary before it overflows.
+  assert(cpu.exception() == ExceptionCode::STACK_OVERFLOW);
+  assert(cpu.sp() == kDataBase);
+  assert(cpu.sp() < kStackBase);
+}
+
 static void testStackUnderflow() {
   Cpu cpu;
   cpu.load({
@@ -172,7 +189,8 @@ void testExceptionTracker() {
 void testExceptionToString() {
   // test that exception messages match our specs
   assert(exceptionToString(ExceptionCode::NONE) == "No exception");
-  assert(exceptionToString(ExceptionCode::STACK_OVERFLOW) == "Stack overflow (SP went below 0xC00)");
+  assert(exceptionToString(ExceptionCode::STACK_OVERFLOW) ==
+         "Stack overflow (SP crossed the stack floor)");
   assert(exceptionToString(ExceptionCode::STACK_UNDERFLOW) == "Stack underflow (SP went above 0x1000)");
   assert(exceptionToString(ExceptionCode::INVALID_MEM_ACCESS) == "Invalid memory access (out of bounds or code overwrite)");
   assert(exceptionToString(ExceptionCode::DIV_BY_ZERO) == "Division by zero");
@@ -217,6 +235,7 @@ int main() {
   testIllegalInstruction();
   testPcOutOfRange();
   testStackOverflow();
+  testDynamicStackGrowsIntoDataRegion();
   testStackUnderflow();
   testLoadOutsideMemory();
   testWriteIntoCodeRegion();

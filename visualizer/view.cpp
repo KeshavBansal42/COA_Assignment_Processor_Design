@@ -157,13 +157,25 @@ std::vector<std::string> stackPanel(const Cpu& cpu, const MachineSnapshot* previ
   std::vector<std::string> lines;
   lines.push_back("STACK");
 
+  const MemorySafetyImpl& safety = cpu.memorySafety();
+  const bool dynamic = safety.isDynamicStackEnabled();
+  const uint32_t floor = safety.heapTop();
   const uint32_t sp = cpu.sp();
+
   lines.push_back(" SP = " + hexWord(sp));
-  if (sp < kStackBase || sp > kInitialSp) {
+  lines.push_back(std::string(" mode ") + (dynamic ? "dynamic" : "fixed") + "   stack floor " +
+                  hexAddr(floor) + (dynamic ? " (heap top)" : ""));
+
+  if (sp < floor || sp > kInitialSp) {
     lines.push_back(" (stack pointer outside stack region)");
     return lines;
   }
-  lines.push_back(" depth " + decimal(kInitialSp - sp) + " / " + decimal(kInitialSp - kStackBase) + " words");
+
+  lines.push_back(" depth " + decimal(kInitialSp - sp) + " words   capacity " +
+                  decimal(sp - floor) + " words");
+  if (dynamic) {
+    lines.push_back(" heap " + decimal(safety.heapSize()) + " words used");
+  }
 
   std::size_t shown = 0;
   for (uint32_t i = 0; i < kStackDepth; ++i) {
@@ -176,10 +188,10 @@ std::vector<std::string> stackPanel(const Cpu& cpu, const MachineSnapshot* previ
     if (i == 0) {
       line += "  <-- top of stack";
     }
-    if (previous != nullptr && address >= previous->sp &&
-        address - previous->sp < previous->stack.size() &&
-        previous->stack[address - previous->sp] != value) {
-      line += "   (written)";
+    if (previous != nullptr && address >= previous->stackLow &&
+        address - previous->stackLow < previous->stack.size() &&
+        previous->stack[address - previous->stackLow] != value) {
+      line += "   (was " + hexWord(previous->stack[address - previous->stackLow]) + ")";
     }
     lines.push_back(line);
     ++shown;
@@ -200,9 +212,13 @@ MachineSnapshot snapshot(const Cpu& cpu) {
   snap.pc = cpu.pc();
   snap.sp = cpu.sp();
   snap.flags = cpu.flags();
-  for (uint32_t i = 0; i < kStackDepth; ++i) {
-    const uint32_t address = cpu.sp() + i;
-    snap.stack.push_back(address <= kLastAddress ? cpu.readMem(address) : 0);
+  // Capture the stack window plus the words just below SP, so a push into a
+  // previously unseen address can still be highlighted on the next frame.
+  const uint32_t sp = cpu.sp();
+  snap.stackLow = sp > kStackDepth ? sp - kStackDepth : 0;
+  const uint32_t high = std::min<uint32_t>(kLastAddress, sp + kStackDepth);
+  for (uint32_t address = snap.stackLow; address <= high; ++address) {
+    snap.stack.push_back(cpu.readMem(address));
   }
   return snap;
 }
@@ -215,7 +231,8 @@ std::string renderFrame(const Cpu& cpu, const ViewOptions& options,
   out << "RISC201 visualizer   " << options.program << "\n";
   out << "pipeline " << pipelineModeName(cpu.pipelineMode()) << "   microcode "
       << (cpu.controlMode() == ControlMode::Vertical ? "vertical" : "horizontal")
-      << "   cycles " << cpu.cycles() << "   instructions " << cpu.instructions() << "\n";
+      << "   stack " << (cpu.dynamicStack() ? "dynamic" : "fixed") << "   cycles "
+      << cpu.cycles() << "   instructions " << cpu.instructions() << "\n";
 
   const std::size_t width = options.width > 60 ? static_cast<std::size_t>(options.width) - 2 : 88;
   out << std::string(width, '-') << "\n";
