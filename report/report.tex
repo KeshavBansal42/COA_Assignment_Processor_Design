@@ -40,7 +40,7 @@
 \maketitle
 
 \begin{abstract}
-This report delivers an architectural analysis of \textbf{RISC201}, a 32-bit custom Reduced Instruction Set Computer (RISC) processor and simulation environment implemented in C++17. Designed to study core computer organization principles without unnecessary abstraction, the system encompasses a complete 31-instruction architecture (including integer arithmetic, bitwise logic, memory access, stack operations, control transfers, and IEEE 754 binary32 floating-point arithmetic). The report details: (1) instruction set encoding and memory partitioning; (2) arithmetic hardware models featuring hierarchical carry-lookahead addition, Wallace tree multiplication, restoring division, and Newton-Raphson floating-point division; (3) sequential reference, 4-stage, and 6-stage overlapped execution pipelines; (4) hazard handling via register forwarding, interlock stalling, and branch flushes; (5) dual-mode microprogrammed control comparing horizontal and vertical control stores; (6) a hardware-enforced memory safety and exception model; (7) the two-pass assembly and macro preprocessor toolchain; and (8) empirical performance benchmarks across pipeline configurations and control representations.
+This report delivers an architectural analysis of \textbf{RISC201}, a 32-bit custom Reduced Instruction Set Computer (RISC) processor and simulation environment implemented in C++17. Designed to study core computer organization principles without unnecessary abstraction, the system encompasses a complete 31-instruction architecture (including integer arithmetic, bitwise logic, memory access, stack operations, control transfers, and IEEE 754 binary32 floating-point arithmetic). The report details: (1) instruction set encoding and memory partitioning; (2) arithmetic hardware models featuring hierarchical carry-lookahead addition, Wallace tree multiplication, restoring division, and Newton-Raphson floating-point division; (3) sequential reference, 4-stage, and 6-stage overlapped execution pipelines; (4) hazard handling via register forwarding, interlock stalling, and branch flushes; (5) dual-mode microprogrammed control comparing horizontal and vertical control stores; (6) a hardware-enforced memory safety and exception model; (7) the two-pass assembly and macro preprocessor toolchain along with the interactive full-screen animated terminal visualizer; and (8) empirical performance benchmarks across pipeline configurations and control representations.
 \end{abstract}
 
 \vspace{0.5em}
@@ -60,7 +60,7 @@ This report delivers an architectural analysis of \textbf{RISC201}, a 32-bit cus
     \item \textbf{Comprehensive Hazard Mitigation:} Mitigates Read-After-Write (RAW) data hazards through execution-stage and write-back forwarding, resolves load-use and flag dependencies via pipeline stalls, and flushes incorrect speculatively fetched instructions upon branch resolution.
     \item \textbf{Dual Control Memory Architectures:} Implements both a 32-bit single-cycle horizontal control ROM and a 16-bit vertical microcode store driven by an internal microprogram sequencer.
     \item \textbf{Active Memory Safety Guard:} Enforces runtime boundaries on every load, store, push, pop, call, and return. Throws non-deferrable hardware exceptions on stack overflow, stack underflow, code region writes, and out-of-range addressing.
-    \item \textbf{Integrated Software Toolchain:} Includes an assembly macro preprocessor supporting recursive stack expansion, a two-pass assembler generating bare hex binaries, a disassembler, an interactive command-line interface (CLI), and an ASCII stack visualizer.
+    \item \textbf{Integrated Software Toolchain and Interactive Visualizer:} Includes an assembly macro preprocessor supporting recursive stack expansion, a two-pass assembler generating bare hex binaries, a disassembler, an interactive command-line interface (CLI) debugger, an ASCII stack visualizer, and a full-screen interactive animated terminal visualizer (\texttt{risc201-viz}).
 \end{itemize}
 
 % =========================================================================
@@ -78,6 +78,7 @@ This report delivers an architectural analysis of \textbf{RISC201}, a 32-bit cus
         \item \textbf{Memory Safety Module (\texttt{MemorySafety}):} Evaluates all effective addresses and stack adjustments before memory commit, raising terminal exceptions upon violation.
         \item \textbf{Assembly Toolchain (\texttt{risc201-asm}, \texttt{risc201-disasm}):} Converts human-readable assembly text into machine code binaries and provides reverse disassembling.
         \item \textbf{Debugger and CLI Shell (\texttt{risc201-sim}):} Provides interactive terminal execution, register and memory inspection, breakpoints, watchpoints, and microcode tracing.
+        \item \textbf{Interactive Animated Visualizer (\texttt{risc201-viz}):} Standalone full-screen terminal visualizer rendering real-time disassembled code execution, register and stack delta mutations, and cycle-accurate pipeline latch occupancies.
     \end{itemize}
 \end{itemize}
 
@@ -317,7 +318,7 @@ The control unit is microprogrammed and supports two interchangeable control mem
     \item \textbf{Horizontal Control ROM:}
     \begin{itemize}
         \item \textbf{Word Width:} 32 bits wide.
-        \item \textbf{Encoding:} Fully unencoded control word containing 13 individual 1-bit control wires, two 1-bit multiplexer selects, and a 4-bit ALU operation identifier.
+        \item \textbf{Encoding:} Fully unencoded control word containing 11 individual 1-bit control flags, two 1-bit multiplexer selects, and a 4-bit ALU operation identifier (17 active control bits total).
         \item \textbf{Execution Model:} Single direct table lookup using the instruction opcode as an array index. Operates with zero sequencer state and zero decoding delay.
     \end{itemize}
     \item \textbf{Vertical Microcode Store:}
@@ -401,6 +402,29 @@ The assembler translates assembly text (\texttt{.s}) into bare machine code file
     \item \textbf{Pass 2 (Instruction Encoding):} Validates strict uppercase mnemonics and registers ($R0$--$R15$), parses immediate values, calculates branch and jump offsets relative to $(PC + 1)$, encodes instruction fields into 32-bit machine words, and writes an 8-digit hexadecimal file.
 \end{itemize}
 
+\subsection{Disassembler Engine (\texttt{risc201-disasm})}
+\begin{itemize}
+    \item \textbf{Inverse Binary Mapping:} Decodes raw 32-bit instruction words back into canonical human-readable assembly text using format-specific bit unpacking for R-type, I-type, and J-type instructions.
+    \item \textbf{Fault-Tolerant Decoding:} Undefined or malformed opcodes gracefully decode as \texttt{illegal 0xNN} without throwing runtime exceptions, ensuring robust disassembly during binary inspection.
+    \item \textbf{Standalone Batch Disassembly:} The standalone executable \texttt{risc201-disasm} ingests assembled \texttt{.hex} files and writes formatted \texttt{.s} assembly listings with explicit hex machine words, instruction mnemonics, and relative branch offsets.
+\end{itemize}
+
+\subsection{Interactive Animated Terminal Visualizer (\texttt{risc201-viz})}
+Implemented in \texttt{visualizer/} (\texttt{view.cpp}, \texttt{terminal.cpp}, and \texttt{main.cpp}), \texttt{risc201-viz} provides a standalone, full-screen animated terminal visualizer for inspecting cycle-by-cycle processor execution without external GUI or curses dependencies:
+\begin{itemize}
+    \item \textbf{Unified Toolchain Ingestion:} Accepts either human-readable assembly source files (\texttt{.s}, \texttt{.asm})---assembled in memory via \texttt{risc201\_assembler}---or pre-assembled machine binary files (\texttt{.hex}).
+    \item \textbf{Configurable Execution Environments:} Configurable via command-line flags to select the execution pipeline (\texttt{--mode sequential|4stage|6stage}), control memory model (\texttt{--micro horizontal|vertical}), and playback refresh interval (\texttt{--speed ms}).
+    \item \textbf{Multi-Panel ANSI Terminal View:} Employs a synchronized terminal interface partitioned into four real-time monitoring panels:
+    \begin{itemize}
+        \item \textbf{Disassembly Code Window:} A 14-instruction window of disassembled code displaying memory addresses, machine words, and mnemonics, highlighting the active instruction ($PC$ or oldest in-flight stage latch) with an active pointer (\texttt{>}).
+        \item \textbf{Architectural State and Delta Inspector:} Renders all 16 general-purpose registers ($R0$--$R15$) in hexadecimal with delta indicators (\texttt{<- was 0x...}) flagging values modified during the last step. Displays $PC$, $SP$, condition flags ($Z, N, C, V$), and execution status (\texttt{HALTED} or hardware exception code).
+        \item \textbf{Pipeline Stage Occupancy Panel:} In pipelined modes, displays the active instruction address and mnemonic residing in each stage latch (\texttt{IF}, \texttt{ID}, \texttt{OF}, \texttt{EX}, \texttt{MEM}, \texttt{WB}), alongside cumulative runtime stall, flush, and forwarding event counters.
+        \item \textbf{Stack Frame Memory Inspector:} Visualizes active stack words from current $SP$ downwards (up to 8 words), stack depth, boundary utilization, and dynamic change tags for newly written words.
+    \end{itemize}
+    \item \textbf{Interactive Execution Control:} Operates in raw terminal mode: \texttt{Space} toggles animated play/pause; \texttt{s} single-steps one retired instruction; \texttt{c} steps exactly one clock cycle; \texttt{+/-} adjusts animation speed; \texttt{r} resets the CPU state; and \texttt{q} exits.
+    \item \textbf{Batch Headless Rendering:} Automatically detects non-interactive output streams or the \texttt{--once} flag to execute programs to completion and emit the final machine frame once for test harnesses and terminal logging.
+\end{itemize}
+
 % =========================================================================
 \section{Empirical Evaluation and Benchmark Analysis}
 % =========================================================================
@@ -429,17 +453,21 @@ The performance of the RISC201 processor was measured across a representative be
 \texttt{stack\_fault.hex} & 4-Stage    & 1025 & 2052 & 2.00 & 0  & 1024 & 0  \\
 \texttt{stack\_fault.hex} & 6-Stage    & 1025 & 4101 & 4.00 & 0  & 2048 & 0  \\
 \midrule
+\texttt{stack\_macros.hex}& Sequential & 12   & 12   & 1.00 & 0  & 0    & 0  \\
+\texttt{stack\_macros.hex}& 4-Stage    & 12   & 21   & 1.75 & 7  & 0    & 0  \\
+\texttt{stack\_macros.hex}& 6-Stage    & 12   & 30   & 2.50 & 14 & 0    & 0  \\
+\midrule
 \texttt{hazard\_raw.hex}  & Sequential & 7    & 7    & 1.00 & 0  & 0    & 0  \\
 \texttt{hazard\_raw.hex}  & 4-Stage    & 7    & 9    & 1.29 & 0  & 0    & 4  \\
 \texttt{hazard\_raw.hex}  & 6-Stage    & 7    & 11   & 1.57 & 0  & 0    & 7  \\
 \midrule
-\texttt{hazard\_load\_use}& Sequential & 6    & 6    & 1.00 & 0  & 0    & 0  \\
-\texttt{hazard\_load\_use}& 4-Stage    & 6    & 10   & 1.67 & 2  & 0    & 1  \\
-\texttt{hazard\_load\_use}& 6-Stage    & 6    & 13   & 2.17 & 3  & 0    & 3  \\
+\texttt{hazard\_load\_use.hex}& Sequential & 6    & 6    & 1.00 & 0  & 0    & 0  \\
+\texttt{hazard\_load\_use.hex}& 4-Stage    & 6    & 10   & 1.67 & 2  & 0    & 1  \\
+\texttt{hazard\_load\_use.hex}& 6-Stage    & 6    & 13   & 2.17 & 3  & 0    & 3  \\
 \midrule
-\texttt{hazard\_branch}   & Sequential & 6    & 6    & 1.00 & 0  & 0    & 0  \\
-\texttt{hazard\_branch}   & 4-Stage    & 6    & 10   & 1.67 & 1  & 1    & 1  \\
-\texttt{hazard\_branch}   & 6-Stage    & 6    & 15   & 2.50 & 2  & 2    & 2  \\
+\texttt{hazard\_branch.hex}   & Sequential & 6    & 6    & 1.00 & 0  & 0    & 0  \\
+\texttt{hazard\_branch.hex}   & 4-Stage    & 6    & 10   & 1.67 & 1  & 1    & 1  \\
+\texttt{hazard\_branch.hex}   & 6-Stage    & 6    & 15   & 2.50 & 2  & 2    & 2  \\
 \bottomrule
 \end{tabular*}
 \end{table}
@@ -448,7 +476,7 @@ The performance of the RISC201 processor was measured across a representative be
 \begin{itemize}
     \item \textbf{Zero-Stall RAW Forwarding:} In \texttt{hazard\_raw}, data forwarding completely eliminates pipeline stalls across both the 4-stage and 6-stage models. The additional cycles observed (9 and 11 vs.\ 7) stem solely from initial pipeline fill and final drain latency.
     \item \textbf{Branch Flush Penalties in Deeper Pipelines:} In looping and recursive programs, the 6-stage pipeline exhibits substantially higher CPI than the 4-stage pipeline ($2.16$ vs.\ $1.48$ in \texttt{loop}; $2.35$ vs.\ $1.55$ in \texttt{recursion}). Because branches resolve in EX, the 6-stage pipeline flushes 3 in-flight stages compared to 2 stages in the 4-stage pipeline, compounding latency over tight iterations.
-    \item \textbf{Stack Operation Serialization Overhead:} In \texttt{stack\_fault}, which performs continuous recursive calls until stack exhaustion, the strict serialization of stack modifications incurs a 2-cycle cost per call in the 4-stage pipeline and a 4-cycle cost per call in the 6-stage pipeline, resulting in CPIs of 2.00 and 4.00, respectively.
+    \item \textbf{Stack Operation Serialization Overhead:} In \texttt{stack\_fault}, which performs continuous recursive calls until stack exhaustion, the strict serialization of stack modifications incurs a 2-cycle cost per call in the 4-stage pipeline and a 4-cycle cost per call in the 6-stage pipeline, resulting in CPIs of 2.00 and 4.00, respectively. Similarly, in \texttt{stack\_macros}, consecutive macro-expanded \texttt{PUSH} and \texttt{POP} instructions incur stack hazard interlocks (7 stalls in 4-stage, 14 stalls in 6-stage) to serialize stack pointer updates through the pipeline.
     \item \textbf{Cycle Count vs.\ Clock Frequency Trade-off:} While the 6-stage pipeline records higher cycle counts, physical hardware implementations benefit from shorter stage critical paths, enabling higher clock frequencies that can outweigh cycle count inflation in sustained workloads.
     \item \textbf{Microcode Representation Invariance:} Testing confirms that horizontal and vertical microcode modes produce strictly identical cycle counts, CPI, stalls, flushes, and machine states across all programs. The choice of control store influences control memory footprint and decoder complexity, but does not alter execution timing.
 \end{itemize}
@@ -461,7 +489,7 @@ The performance of the RISC201 processor was measured across a representative be
     \item \textbf{Modular System Integrity:} RISC201 successfully models the full execution lifecycle of a modern RISC microprocessor through modular, strictly specified C++17 components.
     \item \textbf{Hardware-Accurate Arithmetic:} The structural ALU proves that complex arithmetic operations---including carry-lookahead addition, Wallace tree multiplication, restoring division, and IEEE 754 floating-point operations---can be faithfully simulated without host language shortcuts.
     \item \textbf{Validated Microarchitectural Trade-offs:} Empirical benchmarking quantitatively highlights the fundamental trade-offs between pipeline depth, hazard stall overhead, branch penalties, and control store density.
-    \item \textbf{Robust Safety and Tooling:} The integrated memory safety guard, macro preprocessor, two-pass assembler, and interactive debugger deliver a complete, resilient platform for computer architecture research and education.
+    \item \textbf{Robust Safety and Tooling:} The integrated memory safety guard, macro preprocessor, two-pass assembler, disassembler, interactive debugger, and animated terminal visualizer deliver a complete, resilient platform for computer architecture research and education.
 \end{itemize}
 
 \end{document}
