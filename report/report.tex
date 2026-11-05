@@ -55,7 +55,7 @@ This report delivers an architectural analysis of \textbf{RISC201}, a 32-bit cus
     \item \textbf{System Identity:} RISC201 is a cycle-accurate 32-bit processor simulator developed in C++17 to model and analyze execution pipelines, microprogrammed control units, structural arithmetic circuits, memory protection guards, and software translation engines.
     \item \textbf{Architectural Baseline:} Features 16 general-purpose 32-bit registers ($R0$--$R15$), a 32-bit Program Counter ($PC$), a full-descending 32-bit Stack Pointer ($SP$), and four condition flags ($Z, N, C, V$).
     \item \textbf{Memory Organization:} Direct word-addressed memory of 4,096 words (16\,KiB total), partitioned into a protected code segment, general data segment, and bounded stack segment.
-    \item \textbf{Structural Arithmetic Logic Unit (ALU):} Eliminates host compiler arithmetic shortcuts. Utilizes a hierarchical Carry-Lookahead Adder (CLA), an 8-layer Carry-Save Wallace Tree multiplier, an unsigned restoring divider, and a software-defined IEEE 754 binary32 floating-point unit with Newton-Raphson division.
+    \item \textbf{Structural Arithmetic Logic Unit (ALU):} Uses shared arithmetic algorithms for addition, subtraction and multiplication. Includes a hierarchical Carry-Lookahead Adder (CLA), an 8-layer Carry-Save Wallace Tree multiplier, an unsigned restoring divider, and a software-defined IEEE 754 binary32 floating-point unit with Newton-Raphson division.
     \item \textbf{Multi-Paradigm Execution Engines:} Incorporates three distinct execution models: a 4-stage non-overlapped sequential reference pipeline, a 4-stage overlapped pipeline, and a 6-stage overlapped pipeline with separate operand-fetch and memory-access stages.
     \item \textbf{Comprehensive Hazard Mitigation:} Mitigates Read-After-Write (RAW) data hazards through execution-stage and write-back forwarding, resolves load-use and flag dependencies via pipeline stalls, and flushes incorrect speculatively fetched instructions upon branch resolution.
     \item \textbf{Dual Control Memory Architectures:} Implements both a 32-bit single-cycle horizontal control ROM and a 16-bit vertical microcode store driven by an internal microprogram sequencer.
@@ -134,7 +134,7 @@ Every RISC201 instruction is exactly one 32-bit word in length. The high 6 bits 
 \texttt{HALT} & \texttt{0x01} & - & Ceases CPU execution; marks machine permanently halted. \\
 \texttt{ADD}  & \texttt{0x02} & R & $rd = rs + rt$; updates $Z, N, C, V$. \\
 \texttt{SUB}  & \texttt{0x03} & R & $rd = rs - rt$; updates $Z, N, C, V$ ($C$ represents no-borrow). \\
-\texttt{MUL}  & \texttt{0x04} & R & $rd = \text{low32}(rs \times rt)$; sets $V$ on 32-bit overflow; clears $C$. \\
+\texttt{MUL}  & \texttt{0x04} & R & $rd = \text{low32}(rs \times rt)$; signed product; updates $Z,N$; sets $V$ on signed 32-bit overflow; clears $C$. \\
 \texttt{DIV}  & \texttt{0x05} & R & $rd = rs / rt$ (unsigned integer division); preserves flags; zero divisor faults. \\
 \texttt{AND}  & \texttt{0x06} & R & $rd = rs \ \& \ rt$; updates $Z, N$; clears $C, V$. \\
 \texttt{OR}   & \texttt{0x07} & R & $rd = rs \ | \ rt$; updates $Z, N$; clears $C, V$. \\
@@ -189,9 +189,9 @@ The memory architecture is word-addressed across a 4,096-word address space (\te
     \item \textbf{Hierarchical Carry-Lookahead Adder (CLA):}
     \begin{itemize}
         \item Generates individual bit generate ($g_i = a_i \cdot b_i$) and propagate ($p_i = a_i \oplus b_i$) signals.
-        \item Combines signals hierarchically across 2, 4, 8, 16, and 32-bit blocks to compute fast carries without ripple delay.
+        \item Combines signals across 2, 4, 8, 16, and 32-bit groups, then distributes carries down the tree. Sixteen 2-bit ripple blocks produce the final sum, avoiding a full 32-bit ripple-carry chain.
         \item Implements subtraction and comparisons through two's complement inversion: $a + (\sim b) + 1$.
-        \item Evaluates signed arithmetic overflow ($V$) via the XOR of carry-in and carry-out at the most significant bit: $V = C_{31} \oplus C_{30}$.
+        \item For ADD/SUB/CMP, evaluates signed overflow as the XOR of the carry into and out of bit 31: $V = C_{31} \oplus C_{32}$, where $C_i$ denotes the carry into bit $i$.
     \end{itemize}
     
     \item \textbf{Carry-Save Wallace Tree Multiplier:}
@@ -199,37 +199,58 @@ The memory architecture is word-addressed across a 4,096-word address space (\te
         \item Generates 32 partial-product bit rows from the multiplier.
         \item Employs carry-save adder (CSA) blocks to reduce three 64-bit rows down to two without horizontal carry propagation:
         \begin{equation*}
-            \text{Sum} = a \oplus b \oplus c, \quad \text{Carry} = ((a \cdot b) \ | \ (a \cdot c) \ | \ (b \cdot c)) \ll 1
+            \text{Sum} = a \oplus b \oplus c, \quad \text{Carry} = ((a \mathbin{\&} b) \mathbin{|} (a \mathbin{\&} c) \mathbin{|} (b \mathbin{\&} c)) \ll 1
         \end{equation*}
         \item Cascades through 8 reduction layers ($32 \rightarrow 22 \rightarrow 15 \rightarrow 10 \rightarrow 7 \rightarrow 5 \rightarrow 4 \rightarrow 3 \rightarrow 2$).
-        \item Merges the final two 64-bit rows using a dual 32-bit CLA addition tree.
-        \item Converts unsigned full products to signed products using two's-complement boundary corrections: subtracting $(b \ll 32)$ when $a < 0$ and $(a \ll 32)$ when $b < 0$.
+        \item Merges the final two 64-bit rows using two chained 32-bit CLA blocks, passing the low block's carry into the high block.
+        \item Converts unsigned full products to signed products using two's-complement boundary corrections: subtracting $(b \ll 32)$ when bit 31 of $a$ is set and $(a \ll 32)$ when bit 31 of $b$ is set.
     \end{itemize}
     
     \item \textbf{Unsigned Restoring Divider:}
     \begin{itemize}
-        \item Executes 32 sequential division cycles using a 33-bit extended trial remainder register.
+        \item Executes 32 algorithmic iterations using a 33-bit extended trial remainder held in a 64-bit container.
         \item Shifts the remainder/quotient register left by one position and trial-subtracts the divisor via the CLA.
         \item If the remainder is negative (bit 32 set), the trial fails, the quotient bit is set to 0, and the divisor is added back (restored). Otherwise, the quotient bit is set to 1.
-        \item Division by zero cleanly terminates with output value 0 and raises an immediate \texttt{DIV\_BY\_ZERO} hardware exception.
+        \item On division by zero, the ALU returns a placeholder zero and \texttt{DIV\_BY\_ZERO}. The pipeline rejects the result without writing the faulting instruction's destination. Successful division retains quotient and remainder internally; the DIV instruction exposes only the unsigned quotient.
     \end{itemize}
 \end{itemize}
 
 \subsection{IEEE 754 Binary32 Floating-Point Subsystem}
 \begin{itemize}
-    \item \textbf{Software Precision:} Fully stateless, software-defined IEEE 754 binary32 implementation independent of the host machine's native floating-point hardware or rounding environment.
-    \item \textbf{Normalized and Subnormal Representation:} Unpacks 32-bit words into sign, biased 8-bit exponent (bias 127), and 24-bit significand. Subnormals are normalized into full internal significands without data loss.
+    \item \textbf{Software Precision:} Stateless IEEE 754 binary32 arithmetic operating on raw 32-bit words.
+    \item \textbf{Normalized and Subnormal Representation:} The stored word contains a sign bit, an 8-bit biased exponent (bias 127), and 23 fraction bits. Finite nonzero inputs are converted to an unbiased exponent and normalized 24-bit significand. Subnormals start with exponent $-126$ and no hidden leading one, then normalize internally without loss.
+    \item \textbf{FADD/FSUB:} Handle special values, align significands using a right shift that preserves discarded information in a sticky bit, and add or subtract magnitudes with the shared CLA. The larger magnitude determines the sign of a nonzero difference. Normalize, round and pack the result; FSUB reverses the second operand's effective sign.
+    \item \textbf{FMUL:} XOR operand signs, CLA-add unbiased exponents, and multiply the 24-bit significands using the unsigned Wallace helper. Retain the complete 48-bit product before normalization and rounding.
     \item \textbf{Newton-Raphson Floating-Point Division:}
     \begin{itemize}
         \item Computes the reciprocal $x \approx 1/d$ for normalized divisor $d \in [1, 2)$ using the quadratic iteration:
         \begin{equation*}
             x_{k+1} = x_k \cdot (2 - d \cdot x_k)
         \end{equation*}
-        \item Evaluated purely in fixed-point arithmetic using 6 iterations of Wallace tree products and CLA subtractions, avoiding reciprocal lookup tables.
-        \item \textbf{Exact Residual Correction:} Because mathematical truncation produces an estimate within $\pm 1$ least-significant bit of the exact quotient, a single product-difference check ($T - q \cdot b$) adjusts $q$ by at most $\pm 1$ and yields the exact remainder.
-        \item The exact non-zero remainder drives sticky-bit collection, guaranteeing mathematically identical rounding across all rounding modes.
+        \item Starts at $x_0=1/2$ and performs six Q1.31 fixed-point refinements using full-width Wallace products and CLA subtractions. Operand exponents are subtracted through the CLA.
+        \item \textbf{Exact Residual Correction:} Let $b$ be the normalized 24-bit divisor significand, $S=2^{31}$, and $d=b/2^{23}$. The stored reciprocal $X$ represents $x=X/S$. Scale numerator $n$ so that $b\leq n<2b$, adjusting the exponent if necessary, and set $T=n\,2^{26}$. The estimate is $q=\lfloor nX/2^{28}\rfloor$. Six refinements bound the reciprocal error below eight stored integer units, so the untruncated quotient error is less than $n\,8/2^{28}<1$. Thus $q$ differs from $\lfloor T/b\rfloor$ by at most one. An exact Wallace product $qb$ and CLA residual check correct $q$ by at most one and recover the exact remainder.
+        \item The corrected quotient retains 27 bits. A nonzero exact remainder is jammed into its low sticky bit, allowing the shared rounding stage to apply the selected rounding rule.
     \end{itemize}
-    \item \textbf{Rounding Modes:} Nearest-Even (default used by CPU instructions), Toward-Zero, Toward-Positive Infinity, and Toward-Negative Infinity.
+    \item \textbf{Shared Round/Pack Stage:} Retains guard, round and sticky information, normalizes the result, supports gradual underflow, rounds once using a CLA increment, and handles any carry from rounding. Exponent adjustments also use shared CLA helpers.
+    \item \textbf{Rounding Modes:} The \texttt{fp32} API supports Nearest-Even, Toward-Zero, Toward-Positive Infinity, and Toward-Negative Infinity. CPU instructions use Nearest-Even.
+    \item \textbf{Special Values:} Supports signed zeros, infinities and subnormals. NaN results are canonicalized to quiet NaN \texttt{0x7FC00000}; signaling NaN inputs set invalid status. Invalid operations include $0/0$, infinity divided by infinity, and zero multiplied by infinity. Finite nonzero division by zero returns signed infinity with floating-point divide-by-zero status.
+    \item \textbf{Status:} Each API call returns independent invalid, divide-by-zero, overflow, underflow and inexact indicators. Tininess is detected after rounding; exact subnormals do not raise underflow. Floating-point status is available to direct API callers. CPU floating instructions write the result word and preserve integer FLAGS.
+    \item \textbf{Zero and Overflow Results:} Exact cancellation gives positive zero except under Toward-Negative, which gives negative zero; like-signed zeros retain their effective sign. MUL/DIV signs are the XOR of operand signs. Overflow returns signed infinity or maximum finite magnitude according to the rounding mode, with overflow and inexact status.
+\end{itemize}
+
+
+\subsection{Shared Datapath and Flag Handling}
+\begin{itemize}
+    \item \textbf{Implementation Files:} \texttt{alu/alu.hpp} and \texttt{alu/alu.cpp} provide dispatch and shared CLA, Wallace, restoring and Newton helpers. \texttt{alu/float32.hpp} and \texttt{alu/float32.cpp} provide binary32 operations, rounding and status. Floating arithmetic reuses the shared CLA and Wallace helpers.
+    \item \textbf{Integer Contract:} ADD/SUB wrap modulo $2^{32}$. Signed MUL returns the low word and sets overflow when the full signed product is not the sign extension of that word. DIV is unsigned. Shift counts are masked with 31, and SHR is logical. Booth multiplication remains a tested internal reference; active MUL/FMUL use Wallace.
+    \item \textbf{Flag Commitment:} ADD, SUB, MUL, CMP and ADDI commit Z/N/C/V; logic instructions commit Z/N and clear C/V. DIV, shifts, moves, loads/stores and floating instructions preserve FLAGS. CMP writes no destination register. Candidate Z/N describe the raw result bits.
+\end{itemize}
+
+\subsection{Arithmetic Verification}
+\begin{itemize}
+    \item \texttt{tests/test\_alu.cpp} checks integer results and flags, arithmetic boundaries, full-width signed/unsigned Wallace products, Booth reference products, carry-save conservation, CLA carry/borrow, restoring quotient/remainder invariants, and 8,221 exact Newton significand divisions, including both correction directions.
+    \item \texttt{tests/test\_float32.cpp} checks special values, halfway rounding, gradual underflow, rounding into minimum normal, host-rounding independence, and 503,056 result/status comparisons against host binary32 arithmetic across four operations and four rounding modes.
+    \item \texttt{tests/test\_float.cpp} checks floating instruction dependencies, special values and preservation of integer FLAGS across sequential, four-stage and six-stage execution with both control encodings. Coverage combines directed boundary cases with deterministic random inputs.
 \end{itemize}
 
 % =========================================================================
@@ -487,7 +508,7 @@ The performance of the RISC201 processor was measured across a representative be
 
 \begin{itemize}
     \item \textbf{Modular System Integrity:} RISC201 successfully models the full execution lifecycle of a modern RISC microprocessor through modular, strictly specified C++17 components.
-    \item \textbf{Hardware-Accurate Arithmetic:} The structural ALU proves that complex arithmetic operations---including carry-lookahead addition, Wallace tree multiplication, restoring division, and IEEE 754 floating-point operations---can be faithfully simulated without host language shortcuts.
+    \item \textbf{Structural Arithmetic:} The ALU models hierarchical carry-lookahead addition, carry-save Wallace multiplication, restoring integer division and corrected Newton-Raphson binary32 division. Shared CLA and Wallace helpers support both integer and floating-point arithmetic, with exact residual correction and a common rounding stage for binary32 results.
     \item \textbf{Validated Microarchitectural Trade-offs:} Empirical benchmarking quantitatively highlights the fundamental trade-offs between pipeline depth, hazard stall overhead, branch penalties, and control store density.
     \item \textbf{Robust Safety and Tooling:} The integrated memory safety guard, macro preprocessor, two-pass assembler, disassembler, interactive debugger, and animated terminal visualizer deliver a complete, resilient platform for computer architecture research and education.
 \end{itemize}
