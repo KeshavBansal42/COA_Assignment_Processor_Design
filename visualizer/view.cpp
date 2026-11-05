@@ -159,11 +159,11 @@ std::vector<std::string> stackPanel(const Cpu& cpu, const MachineSnapshot* previ
 
   const uint32_t sp = cpu.sp();
   lines.push_back(" SP = " + hexWord(sp));
-  if (sp < kStackBase || sp > kInitialSp) {
+  if (sp < kDataBase || sp > kInitialSp) {
     lines.push_back(" (stack pointer outside stack region)");
     return lines;
   }
-  lines.push_back(" depth " + decimal(kInitialSp - sp) + " / " + decimal(kInitialSp - kStackBase) + " words");
+  lines.push_back(" depth " + decimal(kInitialSp - sp) + " / " + decimal(kInitialSp - kDataBase) + " words");
 
   std::size_t shown = 0;
   for (uint32_t i = 0; i < kStackDepth; ++i) {

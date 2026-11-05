@@ -154,8 +154,8 @@ void ExceptionTracker::reset() {
 
 // render ascii stack frame to a stream
 void renderStackAscii(std::ostream& out, const uint32_t* memory, uint32_t sp, uint32_t maxDepth) {
-  // print warning in red if sp cross danger line
-  if (sp < kStackBase) {
+  // print warning in red if sp cross danger line (below data/heap limit 0x800)
+  if (sp < kDataBase) {
     out << "\033[31m*** STACK OVERFLOW DANGER ***\033[0m\n";
   }
 

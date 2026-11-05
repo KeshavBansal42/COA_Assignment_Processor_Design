@@ -168,8 +168,8 @@ Every RISC201 instruction is exactly one 32-bit word in length. The high 6 bits 
 The memory architecture is word-addressed across a 4,096-word address space (\texttt{0x000} to \texttt{0xFFF}), cleanly divided into three distinct segments:
 \begin{itemize}
     \item \textbf{Code Segment (\texttt{0x000}--\texttt{0x7FF}, 2,048 words):} Contains the loaded executable program instructions. Read and execute permissions are granted; any write operation targeting this region immediately triggers an \texttt{INVALID\_MEM\_ACCESS} hardware exception.
-    \item \textbf{Data Segment (\texttt{0x800}--\texttt{0xBFF}, 1,024 words):} Dedicated to global variables, static structures, and program heap allocations. Full read and write permissions are permitted.
-    \item \textbf{Stack Segment (\texttt{0xC00}--\texttt{0xFFF}, 1,024 words):} Houses the full-descending execution stack. The Stack Pointer initializes to \texttt{0x1000}. Pushing below \texttt{0xC00} triggers \texttt{STACK\_OVERFLOW}, while popping above \texttt{0x1000} triggers \texttt{STACK\_UNDERFLOW}.
+    \item \textbf{Data Segment (\texttt{0x800}--\texttt{heapTop}, dynamic allocation):} Read/write memory for global variables and dynamic heap allocation. Managed by the embedded dynamic allocator starting at \texttt{0x0800} and growing upward toward \texttt{heapTop}. When dynamic stack mode is enabled, the heap and stack share this memory region with hardware collision detection.
+    \item \textbf{Stack Segment (\texttt{heapTop}--\texttt{0xFFF}, dynamic allocation):} Read/write memory initialized with empty stack pointer \texttt{SP = 0x1000}, growing downwards. In conventional mode, the boundary is fixed at \texttt{0x0C00}. In dynamic stack mode, the boundary dynamically extends downward to \texttt{heapTop} (allowing up to 2,048 contiguous words when the heap is unallocated) and raises \texttt{STACK\_OVERFLOW} upon collision with the heap.
 \end{itemize}
 
 % =========================================================================
@@ -362,7 +362,7 @@ The memory safety subsystem functions as an authoritative hardware guard. The pr
 
 \subsection{Hardware Exception Classifications}
 \begin{itemize}
-    \item \textbf{\texttt{STACK\_OVERFLOW} (Code 1):} Raised when a \texttt{PUSH} or \texttt{CALL} instruction attempts to decrement the stack pointer below the lower boundary of the stack region ($SP < \texttt{0x0C00}$).
+    \item \textbf{\texttt{STACK\_OVERFLOW} (Code 1):} Raised when a \texttt{PUSH} or \texttt{CALL} instruction attempts to decrement the stack pointer below the active boundary floor ($SP < \texttt{heapTop}$ in dynamic mode, or $SP < \texttt{0x0C00}$ in conventional mode upon collision).
     \item \textbf{\texttt{STACK\_UNDERFLOW} (Code 2):} Raised when a \texttt{POP} or \texttt{RET} instruction attempts to increment the stack pointer past the initial empty stack boundary ($SP \ge \texttt{0x1000}$).
     \item \textbf{\texttt{INVALID\_MEM\_ACCESS} (Code 3):} Raised under two conditions:
     \begin{itemize}
