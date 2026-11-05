@@ -1,8 +1,35 @@
-# ALU implementation and arithmetic contract
+# Arithmetic Logic Unit (ALU)
 
-`Alu::execute(AluOp, uint32_t, uint32_t)` returns a value, candidate Z/N/C/V
-flags, and an exception. It does not modify CPU state. This document records
-the existing instruction behavior; it introduces no opcodes or flag-policy changes.
+The ALU performs the processor's integer, logical and binary32 floating-point
+operations. Addition uses a hierarchical carry-lookahead adder (CLA),
+multiplication uses a carry-save Wallace tree, integer division uses restoring
+division, and floating-point division uses Newton–Raphson with an exact final
+correction.
+
+## Files and connection to the processor
+
+| File | Responsibility |
+|---|---|
+| `alu/alu.hpp` | ALU interface and declarations of shared arithmetic helpers |
+| `alu/alu.cpp` | Integer operations, CLA, carry-save and Wallace multiplication, restoring division, Newton reciprocal, and operation dispatch |
+| `alu/float32.hpp` | Binary32 API, rounding modes and floating-point status |
+| `alu/float32.cpp` | Unpacking, special values, alignment, normalization, rounding and packing for floating-point arithmetic |
+| `tests/test_alu.cpp` | Integer operations and shared arithmetic helpers |
+| `tests/test_float32.cpp` | Binary32 results, rounding modes and status |
+| `tests/test_float.cpp` | Floating-point instructions through the processor |
+
+`Alu::execute(AluOp, uint32_t, uint32_t)` takes an operation and two raw 32-bit
+words. It returns an `AluResult` containing the result word, candidate Z/N/C/V
+flags and an exception code. The ALU itself does not modify registers, memory
+or CPU FLAGS; the pipeline applies the control signals and commits the result.
+
+Registers have no integer or floating-point type tag. The decoded instruction
+selects the interpretation: ADD treats its operands as integer words, while
+FADD treats the same bits as binary32 encodings. For example, `0x3F800000`
+represents 1.0 to FADD but the integer 1065353216 to ADD. The ALU does not
+inspect a value and guess its type, and MOV, loads and stores preserve its bits.
+Floating-point operations share the integer arithmetic helpers directly;
+they do not call the public integer instructions or convert through host floats.
 
 ## Integer operations
 
@@ -29,26 +56,26 @@ right-shift instruction. DIV interprets even a word with bit 31 set as unsigned;
 for example, 0xFFFFFFF6 / 2 = 0x7FFFFFFB, not -5.
 
 DIV by zero returns value 0, Z=true, N=C=V=false, and DIV_BY_ZERO. The pipeline
-must reject that result before writing any architectural state. Integer
+rejects that result before committing the faulting instruction's writes. Integer
 operations otherwise return NONE.
 
-## Algorithms and relationship to the arithmetic slides
+## Arithmetic algorithms
 
 ### Hierarchical carry-lookahead addition
 
-`detail::claAdd` implements Arithmetic-1's slides 16-25: bit generate/propagate,
-bottom-up groups of 2/4/8/16/32 bits, top-down carry distribution, then sixteen
-2-bit sum blocks. SUB/CMP reuse it as a + ~b + 1. Signed overflow is the XOR
-of the carry into and out of bit 31. The tree phases are not simulated cycles.
+`detail::claAdd` computes bit generate/propagate signals, combines them into
+groups of 2/4/8/16/32 bits, distributes carries back down the tree, and uses
+sixteen 2-bit sum blocks to produce the result. SUB/CMP reuse it as a + ~b + 1.
+Signed overflow is the XOR of the carry into and out of bit 31. The tree phases are not simulated cycles.
 
-### Multiplication: Wallace runtime, Booth reference
+### Carry-save and Wallace multiplication
 
-The active integer MUL and floating FMUL now use a carry-save Wallace tree
-(Sarangi 8.2.5). The original `detail::boothMultiply` remains a tested internal
-reference, not an alternative runtime path or a new instruction. It follows
-Arithmetic-1's slides 30-31: initialize A=0, Q=b, M=a,
-Q_minus_1=0. Repeat 32 times: pair 01 adds M, pair 10 subtracts M, pairs
-00/11 do no arithmetic, then arithmetic-right-shift the combined registers.
+Integer MUL and floating FMUL use a carry-save Wallace tree. The helper
+`detail::boothMultiply` remains a tested internal reference, not an alternative runtime path or a new instruction. It initializes
+A=0, Q=b, M=a and Q_minus_1=0. On each of 32 iterations, the pair
+(Q bit 0, Q_minus_1) determines the action: 01 adds M, 10 subtracts M, and
+00/11 leave A unchanged. Each iteration then performs an arithmetic right shift
+of the combined A, Q and Q_minus_1 registers.
 
 A and the sign-extended M are 33 bits so that negating INT32_MIN is
 representable. Each addition/subtraction uses shared `addSubtract33`: the
@@ -68,23 +95,24 @@ carry = ((a AND b) OR (a AND c) OR (b AND c)) << 1
 The shifted carry is already part of the returned row; sum+carry equals a+b+c
 modulo 2^64. No carry propagates between columns within a compressor.
 `wallaceMultiply` generates 32 shifted partial-product rows using multiplier
-bits. Each level reduces independent triples from the PREVIOUS level, so the
+bits. Each level reduces independent triples from the previous level, so the
 row counts are 32,22,15,10,7,5,4,3,2: eight carry-save layers. A final 64-bit
-CLA addition combines the last two rows. `add64` and `subtract64` chain the
-existing 32-bit CLA blocks with the correct carry/no-borrow input.
+addition combines the last two rows. Both `add64` and `subtract64` use two
+32-bit CLA blocks, passing the low block's carry/no-borrow to the high block.
 
 The unsigned primitive returns the full 32x32 product, including bit 63.
 `signedWallaceMultiply` converts it to the two's-complement signed product by
 CLA-subtracting (b<<32) when a is negative and (a<<32) when b is negative.
 These are the sign corrections from expanding (a-sa*2^32)(b-sb*2^32), modulo
-2^64. FMUL and Newton use the unsigned primitive directly; their unsigned
-fixed-point operands must not go through the public integer MUL instruction.
+2^64, where sa and sb are the sign bits of a and b. FMUL and Newton use the
+unsigned primitive directly; their unsigned fixed-point operands must not go
+through the public integer MUL instruction.
 
 ### Unsigned restoring division
 
-`detail::restoringDivide` follows Arithmetic-1's slide 34: initialize A=0,
-Q=dividend, M=divisor; repeat 32 times, shifting A/Q left, subtracting M,
-testing the trial remainder, and restoring A if negative. A failed trial
+`detail::restoringDivide` initializes A=0, Q=dividend and M=divisor. It
+performs 32 iterations, shifting A/Q left, subtracting M, testing the trial
+remainder, and restoring A if negative. A failed trial
 leaves the new quotient bit zero; a successful trial sets it to one.
 
 A uint64 container holds the 33-bit partial remainder/trial word. Shared
@@ -96,13 +124,14 @@ dividend = quotient * divisor + remainder and 0 <= remainder < divisor.
 The internal helper declared in `alu/alu.hpp` allows direct verification;
 the public ALU and processor DIV still expose only the quotient. On division
 by zero the internal helper returns zero quotient/remainder and DIV_BY_ZERO.
-Integer DIV continues to use this CLA-backed restoring step. FDIV instead uses
-Newton-Raphson, described below; no non-restoring or Goldschmidt path is added.
+Integer DIV uses this CLA-backed restoring step. FDIV uses Newton–Raphson,
+described below.
 
 ### Shared integer and floating-point datapath
 
-The helpers live in `alu.hpp`/`alu.cpp` under namespace detail; no extra header
-is required. They compute values without touching CPU FLAGS or FP status.
+The shared helpers are declared in `alu/alu.hpp` and implemented in
+`alu/alu.cpp` under `risc201::detail`. They compute values without modifying
+CPU FLAGS or FP status.
 
 | Primitive | Users |
 |---|---|
@@ -115,15 +144,14 @@ is required. They compute values without touching CPU FLAGS or FP status.
 | restoringStep | integer DIV quotient bits |
 | newtonReciprocal / newtonDivideSignificands | FDIV reciprocal estimate and exact quotient/remainder |
 
-These are shared circuit algorithms, not recursive calls to Alu::execute.
-Bit shifts, Boolean operations, comparisons, register-field extraction and loop
-indices remain ordinary C++ modeling operations. The model does not claim that
-every C++ operation or host instruction is gate simulated, or that a single
-physical CLA's resource contention is scheduled across clock cycles.
+The arithmetic is expressed through shared datapath algorithms. Shifts, Boolean
+operations, comparisons, field extraction and loop indices use ordinary C++.
+The simulator models the arithmetic structure, but does not schedule access to
+a single physical adder or simulate every operation at gate level.
 
 ### Newton-Raphson floating-point division
 
-FDIV uses Sarangi 8.6.3's reciprocal iteration x <- x*(2-d*x), beginning at
+FDIV uses the reciprocal iteration x <- x*(2-d*x), beginning at
 x=1/2. It performs the iteration in fixed point, using Wallace products and
 CLA subtraction, rather than repeatedly rounding through binary32 FMUL.
 All 64 product bits are retained before each fixed-point shift.
@@ -149,7 +177,7 @@ The module computes its exact product q*b with Wallace and compares it with
 T=n<<26. If the product exceeds T, it decrements q once. If T-q*b >= b, it
 increments q once. CLA arithmetic then returns the exact remainder T-q*b.
 There is no restoring-divider fallback or unbounded correction loop. A nonzero
-remainder supplies sticky to the unchanged round/pack stage, preserving all
+remainder supplies sticky to the shared round/pack stage, preserving all
 four rounding modes and gradual underflow.
 
 #### Why a single quotient correction is sufficient
@@ -188,15 +216,13 @@ N != V / N == V for signed comparisons. ADDI sign-extends its 18-bit immediate
 before addition. LDI uses ADD with operand a=0. LW/SW use ADD for addresses,
 then memory safety checks the resulting address.
 
-The older ISA wording "sets Z N" for logic instructions did not specify C/V.
-Clearing C/V above documents the existing implementation, not a newly agreed
-policy. Preserving C/V instead would require team agreement and coordinated
-control/pipeline changes; it must not be changed inside the ALU alone.
+Logic instructions write the entire Flags structure, so they clear C/V as
+well as updating Z/N. This behavior is shared by both control encodings.
 
 ## Timing and floating point
 
-The ALU remains stateless and synchronous: every execute call completes in
-one EX invocation. Arithmetic iterations and CSA layers do not advance simulated cycles.
+Each ALU call completes within one EX invocation. Arithmetic iterations and
+CSA layers do not advance simulated cycles.
 Multicycle execution needs coordination with pipeline stalls and forwarding.
 
 FADD/FSUB/FMUL/FDIV use the explicit binary32 module described below. They
@@ -211,9 +237,9 @@ or dependence on the host rounding environment in the implementation.
 
 Finite nonzero inputs are unpacked into an unbiased exponent and a normalized
 24-bit significand. Subnormals use exponent -126 and no implicit leading one;
-they are normalized internally without losing information. Arithmetic follows
-Arithmetic-2's alignment, significand arithmetic, normalization, rounding and
-packing steps:
+they are normalized internally without losing information. The arithmetic
+path handles alignment, significand arithmetic, normalization, rounding and
+packing as follows:
 
 - ADD/SUB align exponents with a right shift that retains discarded bits in a
   sticky bit. Same signs add magnitudes; different signs subtract magnitudes.
@@ -260,7 +286,9 @@ and inexact booleans. It is separate from integer Z/N/C/V and ExceptionCode.
 | Tiny, inexact rounded result | underflow + inexact |
 | Exactly representable subnormal | exact result, no underflow |
 
-NaN signs and payloads are intentionally canonicalized, not propagated.
+NaN inputs are handled before the other special-value cases. Either signaling
+NaN sets invalid, including when the other operand is a quiet NaN. NaN signs
+and payloads are canonicalized.
 Tininess is detected **after rounding**: a tiny value rounded up to minimum
 normal reports inexact but not underflow. Exact cancellation produces -0 only
 under TowardNegative; like-signed zeros retain their sign. MUL/DIV zero signs
@@ -271,11 +299,22 @@ the module's value and does not surface FP status or raise integer exceptions.
 FP status is available to direct module callers/tests. Connecting it to a CPU
 status register is a separate team integration decision. Candidate Z/N flags
 returned by Alu::execute still describe raw result bits and are not FP comparisons;
-the control unit does not commit them for floating instructions.
+the control unit does not commit them for floating instructions. For example,
+the raw word for -0 has N=true and Z=false in the returned candidate flags,
+even though its floating-point value is zero.
 
-The rounding/status conventions can be compared with the
-[Berkeley SoftFloat interface documentation](https://www.jhauser.us/arithmetic/SoftFloat-3/doc/SoftFloat.html).
-This implementation does not link to or copy SoftFloat.
+### Scope and limitations
+
+The implementation covers four binary32 arithmetic operations and the four
+rounding modes listed above. It does not implement binary64, floating-point
+comparison or conversion instructions, fused multiply-add, or a CPU floating-point
+status/rounding register. Integer DIV is unsigned and exposes no remainder
+instruction. Goldschmidt and non-restoring division are not implemented.
+Booth is retained for reference tests; there is no instruction or runtime
+setting that switches between multiplication algorithms.
+
+The simulator has no hardware area or clock-frequency model. No measured
+speedup is claimed for the Wallace tree or Newton iteration.
 
 ## Verification
 
@@ -291,8 +330,8 @@ It also verifies carry-save conservation, signed and unsigned full Wallace
 products against native integer arithmetic and Booth, 64-bit CLA carry/borrow,
 reciprocal error bounds, and 8,221 exact Newton quotient/remainder cases.
 
-All checks remain enabled under NDEBUG. Run the ALU
-directly if another module prevents building the full core:
+The checks in `test_alu` and `test_float32` remain enabled under `NDEBUG`.
+The integer suite can also be compiled directly:
 
 ```sh
 g++ -std=c++17 -O1 -g -Wall -Wextra -fsanitize=undefined,address -I . \
@@ -317,7 +356,25 @@ g++ -std=c++17 -O2 -Wall -Wextra -frounding-math -fno-fast-math \
 /tmp/risc201-test-float32
 ```
 
-With CMake, build `test_alu` and `test_float32` independently of memory safety,
+`tests/test_float.cpp` checks instruction dependencies, special values and
+preservation of integer FLAGS across all six combinations of sequential,
+four-stage and six-stage execution with horizontal and vertical control.
+The wider project suite checks control, pipelines, exceptions, memory,
+assembler/disassembler and simulator interfaces.
+
+To build and run the full suite from the project root:
+
+```sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+cmake --build build -j4
+ctest --test-dir build --output-on-failure
+```
+
+For just the arithmetic tests, build targets `test_alu` and `test_float32`,
 then run `ctest --test-dir build -R '^(alu|float32)$' --output-on-failure`.
-`tests/test_float.cpp` exercises instructions and special values across all six
-pipeline/control combinations when the simulator's other modules compile.
+Debug builds also keep assertions enabled in the rest of the project.
+
+The directed and deterministic random tests provide substantial coverage, but
+they are not exhaustive over every operand pair. The floating-point oracle is
+host binary32 arithmetic. Passing these tests does not constitute formal
+IEEE 754 conformance certification.
