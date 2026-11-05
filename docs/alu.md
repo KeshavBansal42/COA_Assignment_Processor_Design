@@ -4,8 +4,7 @@ The ALU performs the processor's integer, logical and binary32 floating-point
 operations. Addition uses a hierarchical carry-lookahead adder (CLA),
 multiplication uses a carry-save Wallace tree, integer division uses restoring
 division, and floating-point division uses Newton–Raphson with an exact final
-correction. The arithmetic slides and Chapter 8 of Sarangi's *Basic Computer
-Architecture* provide the basis for these algorithms.
+correction.
 
 ## Files and connection to the processor
 
@@ -60,23 +59,23 @@ DIV by zero returns value 0, Z=true, N=C=V=false, and DIV_BY_ZERO. The pipeline
 rejects that result before committing the faulting instruction's writes. Integer
 operations otherwise return NONE.
 
-## Algorithms and relationship to the arithmetic slides
+## Arithmetic algorithms
 
 ### Hierarchical carry-lookahead addition
 
-`detail::claAdd` implements Arithmetic-1's slides 16-25: bit generate/propagate,
-bottom-up groups of 2/4/8/16/32 bits, top-down carry distribution, then sixteen
-2-bit sum blocks. SUB/CMP reuse it as a + ~b + 1. Signed overflow is the XOR
-of the carry into and out of bit 31. The tree phases are not simulated cycles.
+`detail::claAdd` computes bit generate/propagate signals, combines them into
+groups of 2/4/8/16/32 bits, distributes carries back down the tree, and uses
+sixteen 2-bit sum blocks to produce the result. SUB/CMP reuse it as a + ~b + 1.
+Signed overflow is the XOR of the carry into and out of bit 31. The tree phases are not simulated cycles.
 
 ### Carry-save and Wallace multiplication
 
-Integer MUL and floating FMUL use a carry-save Wallace tree
-(Sarangi 8.2.5). The original `detail::boothMultiply` remains a tested internal
-reference, not an alternative runtime path or a new instruction. It follows
-Arithmetic-1's slides 30-31: initialize A=0, Q=b, M=a,
-Q_minus_1=0. Repeat 32 times: pair 01 adds M, pair 10 subtracts M, pairs
-00/11 do no arithmetic, then arithmetic-right-shift the combined registers.
+Integer MUL and floating FMUL use a carry-save Wallace tree. The helper
+`detail::boothMultiply` remains a tested internal reference, not an alternative runtime path or a new instruction. It initializes
+A=0, Q=b, M=a and Q_minus_1=0. On each of 32 iterations, the pair
+(Q bit 0, Q_minus_1) determines the action: 01 adds M, 10 subtracts M, and
+00/11 leave A unchanged. Each iteration then performs an arithmetic right shift
+of the combined A, Q and Q_minus_1 registers.
 
 A and the sign-extended M are 33 bits so that negating INT32_MIN is
 representable. Each addition/subtraction uses shared `addSubtract33`: the
@@ -105,14 +104,15 @@ The unsigned primitive returns the full 32x32 product, including bit 63.
 `signedWallaceMultiply` converts it to the two's-complement signed product by
 CLA-subtracting (b<<32) when a is negative and (a<<32) when b is negative.
 These are the sign corrections from expanding (a-sa*2^32)(b-sb*2^32), modulo
-2^64. FMUL and Newton use the unsigned primitive directly; their unsigned
-fixed-point operands must not go through the public integer MUL instruction.
+2^64, where sa and sb are the sign bits of a and b. FMUL and Newton use the
+unsigned primitive directly; their unsigned fixed-point operands must not go
+through the public integer MUL instruction.
 
 ### Unsigned restoring division
 
-`detail::restoringDivide` follows Arithmetic-1's slide 34: initialize A=0,
-Q=dividend, M=divisor; repeat 32 times, shifting A/Q left, subtracting M,
-testing the trial remainder, and restoring A if negative. A failed trial
+`detail::restoringDivide` initializes A=0, Q=dividend and M=divisor. It
+performs 32 iterations, shifting A/Q left, subtracting M, testing the trial
+remainder, and restoring A if negative. A failed trial
 leaves the new quotient bit zero; a successful trial sets it to one.
 
 A uint64 container holds the 33-bit partial remainder/trial word. Shared
@@ -151,7 +151,7 @@ a single physical adder or simulate every operation at gate level.
 
 ### Newton-Raphson floating-point division
 
-FDIV uses Sarangi 8.6.3's reciprocal iteration x <- x*(2-d*x), beginning at
+FDIV uses the reciprocal iteration x <- x*(2-d*x), beginning at
 x=1/2. It performs the iteration in fixed point, using Wallace products and
 CLA subtraction, rather than repeatedly rounding through binary32 FMUL.
 All 64 product bits are retained before each fixed-point shift.
@@ -237,9 +237,9 @@ or dependence on the host rounding environment in the implementation.
 
 Finite nonzero inputs are unpacked into an unbiased exponent and a normalized
 24-bit significand. Subnormals use exponent -126 and no implicit leading one;
-they are normalized internally without losing information. Arithmetic follows
-Arithmetic-2's alignment, significand arithmetic, normalization, rounding and
-packing steps:
+they are normalized internally without losing information. The arithmetic
+path handles alignment, significand arithmetic, normalization, rounding and
+packing as follows:
 
 - ADD/SUB align exponents with a right shift that retains discarded bits in a
   sticky bit. Same signs add magnitudes; different signs subtract magnitudes.
@@ -376,5 +376,5 @@ Debug builds also keep assertions enabled in the rest of the project.
 
 The directed and deterministic random tests provide substantial coverage, but
 they are not exhaustive over every operand pair. The floating-point oracle is
-host binary32 arithmetic, not an independent SoftFloat test run or a formal
+host binary32 arithmetic. Passing these tests does not constitute formal
 IEEE 754 conformance certification.
