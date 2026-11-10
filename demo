@@ -1,0 +1,61 @@
+#!/bin/sh
+# Build the visualizer and return to the menu after each demonstration.
+set -eu
+
+project_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+cd "$project_dir"
+
+printf 'Preparing the RISC201 visualizer...\n'
+cmake -S . -B build >/dev/null
+cmake --build build --target risc201_viz risc201_demo_benchmark --parallel >/dev/null
+
+while :; do
+  printf '\nRISC201 presentation demos\n'
+  printf '%s\n' \
+    '  1. Loop: add 10 down to 1' \
+    '  2. Memory: load and dependent add' \
+    '  3. Recursion: calls and the stack' \
+    '  4. Floating point: add, multiply, divide' \
+    '  5. Branch: compare and jump' \
+    '  6. Stack macros: push and pop' \
+    '  7. Independent instructions: pipeline throughput' \
+    '  8. Register forwarding: dependent instructions' \
+    '  9. Branch paths: taken and not taken' \
+    ' 10. HALT: finish older work and discard younger work' \
+    ' 11. Long independent stream: pipeline fill and overlap' \
+    ' 12. Long dependent chain: forwarding under load' \
+    '  b. Compare all pipeline modes (benchmark)' \
+    '  q. Quit'
+  printf 'Choose a demo: '
+  if ! IFS= read -r choice; then
+    printf '\n'
+    exit 0
+  fi
+  case "$choice" in
+    1) program=loop.hex ;;
+    2) program=hazard_load_use.hex ;;
+    3) program=recursion.hex ;;
+    4) program=float_demo.hex ;;
+    5) program=hazard_branch.hex ;;
+    6) program=stack_macros.hex ;;
+    7) program=demo_independent.hex ;;
+    8) program=hazard_raw.hex ;;
+    9) program=demo_branch_paths.hex ;;
+    10) program=demo_halt_drain.hex ;;
+    11) program=bench_independent.hex ;;
+    12) program=bench_dependent.hex ;;
+    b|B) ./build/risc201-demo-benchmark; continue ;;
+    q|Q) exit 0 ;;
+    *) printf 'Please enter a number from 1 to 12, b for benchmark, or q to quit.\n'; continue ;;
+  esac
+  printf 'Pipeline mode [1=sequential, 2=4-stage, 3=6-stage; Enter=6-stage]: '
+  if ! IFS= read -r mode_choice; then printf '\n'; exit 0; fi
+  case "$mode_choice" in
+    1) mode=sequential ;;
+    2) mode=4stage ;;
+    3|'') mode=6stage ;;
+    *) printf 'Unknown mode; using 6-stage.\n'; mode=6stage ;;
+  esac
+  printf '\nStarting %s. In the visualizer: space pauses, c steps a cycle, s steps an instruction, q returns to the menu.\n' "$program"
+  ./build/risc201-viz "tests/programs/$program" --mode "$mode" --speed 500
+done

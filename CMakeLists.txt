@@ -78,3 +78,10 @@ add_subdirectory(tests)
 # The evaluation run doubles as a smoke test that every program still runs in
 # every configuration.
 add_test(NAME evaluation COMMAND risc201_eval)
+
+# Presentation benchmark also verifies that demo outcomes agree across modes.
+add_executable(risc201_demo_benchmark eval/demo_benchmark.cpp)
+set_target_properties(risc201_demo_benchmark PROPERTIES OUTPUT_NAME risc201-demo-benchmark)
+target_link_libraries(risc201_demo_benchmark PRIVATE risc201_core)
+target_compile_definitions(risc201_demo_benchmark PRIVATE RISC201_PROGRAMS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/programs")
+add_test(NAME demo_benchmark COMMAND risc201_demo_benchmark)

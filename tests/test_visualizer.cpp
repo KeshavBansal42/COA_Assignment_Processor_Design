@@ -53,6 +53,14 @@ int main() {
   want(frame.find("mode fixed") != std::string::npos, "fixed stack mode");
   want(frame.find("HALTED") != std::string::npos, "halted state");
 
+  options.width = 140;
+  const std::string wide = renderFrame(cpu, options, &before);
+  want(wide.find("PROCESSOR DASHBOARD") != std::string::npos, "wide dashboard");
+  want(wide.find("PROGRAM / INSTRUCTIONS") != std::string::npos, "wide code panel");
+  want(wide.find("STACK / MEMORY") != std::string::npos, "wide stack panel");
+  want(wide.find("* changed") != std::string::npos, "wide changed register indicator");
+  options.width = 100;
+
   // Dynamic mode moves the floor to the heap high-water mark and says so.
   cpu.setDynamicStack(true);
   const std::string dynamic = renderFrame(cpu, options, nullptr);

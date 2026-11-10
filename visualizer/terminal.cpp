@@ -5,6 +5,7 @@
 #include <unistd.h>
 
 #include <iostream>
+#include <sstream>
 
 namespace risc201 {
 
@@ -51,7 +52,25 @@ void Terminal::draw(const std::string& frame) const {
     return;
   }
   // Home, frame, erase to end of screen.
-  std::cout << "\033[H" << frame << "\033[J" << std::flush;
+  std::cout << "\033[H";
+  std::istringstream input(frame);
+  std::string line;
+  while (std::getline(input, line)) {
+    const bool title = line.rfind("RISC201", 0) == 0;
+    const bool heading = line.rfind("CODE", 0) == 0 || line == "PIPELINE" || line == "STACK" ||
+                         line.rfind("  PIPELINE /", 0) == 0 || line.find("PROGRAM / INSTRUCTIONS") != std::string::npos;
+    const bool active = line.rfind("> ", 0) == 0 || line.rfind("|> ", 0) == 0;
+    const bool border = !line.empty() && (line[0] == '+' || line[0] == '-');
+    if (title) std::cout << "\033[1;38;5;117m";
+    else if (heading) std::cout << "\033[1;38;5;81m";
+    else if (active) std::cout << "\033[1;38;5;230;48;5;24m";
+    else if (border) std::cout << "\033[38;5;67m";
+    else if (line.find("HALTED") != std::string::npos) std::cout << "\033[1;38;5;114m";
+    else if (line.find("EXCEPTION") != std::string::npos) std::cout << "\033[1;38;5;203m";
+    std::cout << line << "\033[0m";
+    std::cout << '\n';
+  }
+  std::cout << "\033[J" << std::flush;
 }
 
 int Terminal::readKey(int timeoutMs) const {

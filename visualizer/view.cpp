@@ -9,8 +9,8 @@ namespace risc201 {
 namespace {
 
 // How many stack words and code lines the panels show.
-constexpr uint32_t kStackDepth = 8;
-constexpr std::size_t kCodeWindow = 14;
+constexpr uint32_t kStackDepth = 4;
+constexpr std::size_t kCodeWindow = 8;
 
 std::string hexWord(uint32_t value) {
   std::ostringstream out;
@@ -93,13 +93,19 @@ std::vector<std::string> machinePanel(const Cpu& cpu, const MachineSnapshot* pre
   std::vector<std::string> lines;
   lines.push_back("REGISTERS");
 
-  for (std::size_t i = 0; i < kRegisterCount; ++i) {
-    const uint32_t value = cpu.reg(static_cast<uint8_t>(i));
-    std::string line = " r" + pad(decimal(static_cast<uint32_t>(i)), 2) + " " + hexWord(value);
-    if (previous != nullptr && i < previous->regs.size() && previous->regs[i] != value) {
-      line += "  <- was " + hexWord(previous->regs[i]);
+  for (std::size_t i = 0; i < kRegisterCount / 2; ++i) {
+    std::string line;
+    std::string changes;
+    for (std::size_t index : {i, i + kRegisterCount / 2}) {
+      const uint32_t value = cpu.reg(static_cast<uint8_t>(index));
+      std::string cell = "r" + pad(decimal(static_cast<uint32_t>(index)), 2) + " " + hexWord(value);
+      if (previous != nullptr && index < previous->regs.size() && previous->regs[index] != value) {
+        changes += " r" + decimal(static_cast<uint32_t>(index)) + " <- was " + hexWord(previous->regs[index]);
+      }
+      if (!line.empty()) line += "  ";
+      line += cell;
     }
-    lines.push_back(line);
+    lines.push_back(" " + line + changes);
   }
 
   const Flags flags = cpu.flags();
@@ -127,24 +133,19 @@ std::vector<std::string> pipelinePanel(const Cpu& cpu) {
 
   const CyclePipeline& pipeline = cpu.cyclePipeline();
   const std::vector<std::string> names = pipeline.stageNames();
-  std::ostringstream header;
-  header << " ";
-  for (const std::string& name : names) {
-    header << pad(name, 14);
-  }
-  lines.push_back(header.str());
-
-  std::ostringstream row;
-  row << " ";
-  for (int stage = pipeline.stages() - 1; stage >= 0; --stage) {
-    const PipeLatch& latch = pipeline.latch(stage);
-    std::string cell = "-";
-    if (latch.valid) {
-      cell = hexAddr(latch.pc) + " " + mnemonicOf(decodeOpcode(latch.instr));
+  for (int group = 0; group < pipeline.stages(); group += 3) {
+    std::ostringstream row;
+    row << " ";
+    for (int offset = 0; offset < 3 && group + offset < pipeline.stages(); ++offset) {
+      const int position = group + offset;
+      const PipeLatch& latch = pipeline.latch(pipeline.stages() - 1 - position);
+      std::string cell = names[position] + ":";
+      if (latch.valid) cell += hexAddr(latch.pc) + " " + mnemonicOf(decodeOpcode(latch.instr));
+      else cell += "-";
+      row << pad(cell, 16);
     }
-    row << pad(cell, 14);
+    lines.push_back(row.str());
   }
-  lines.push_back(row.str());
 
   std::ostringstream counters;
   counters << " stalls " << pipeline.stalls() << "  flushes " << pipeline.flushes()
@@ -202,6 +203,65 @@ std::vector<std::string> stackPanel(const Cpu& cpu, const MachineSnapshot* previ
   return lines;
 }
 
+// A wide presentation layout. Box content is clipped to its column, so long
+// paths and change annotations cannot push the next panel off the screen.
+std::string presentationFrame(const Cpu& cpu, const ViewOptions& options,
+                              const MachineSnapshot* previous, uint32_t current) {
+  const std::size_t width = std::min<std::size_t>(static_cast<std::size_t>(options.width) - 1, 150);
+  const std::size_t inner = width - 4;
+  const std::size_t left = inner * 30 / 100;
+  const std::size_t middle = inner * 38 / 100;
+  const std::size_t right = inner - left - middle;
+  const auto rule = [&] { return "+" + std::string(left, '-') + "+" +
+                                 std::string(middle, '-') + "+" + std::string(right, '-') + "+\n"; };
+  auto code = codePanel(options, current);
+  auto machine = machinePanel(cpu, previous);
+  auto stack = stackPanel(cpu, previous);
+  // Keep change indicators legible even in the smallest wide layout.
+  for (auto& line : machine) {
+    const auto change = line.find(" <- was ");
+    if (change != std::string::npos) {
+      const auto label = line.rfind(" r", change);
+      if (label != std::string::npos) line = line.substr(0, label) + "  * changed";
+    }
+  }
+  for (auto& line : stack) {
+    const auto change = line.find("   (was ");
+    if (change != std::string::npos) line = line.substr(0, change) + " *";
+    const auto top = line.find("  <-- top of stack");
+    if (top != std::string::npos) line.replace(top, 18, "  <- top");
+  }
+  code[0] = "  PROGRAM / INSTRUCTIONS";
+  machine[0] = "  REGISTER FILE / MACHINE STATE";
+  stack[0] = "  STACK / MEMORY";
+  std::ostringstream out;
+  out << "RISC201 visualizer  /  PROCESSOR DASHBOARD\n";
+  out << "  " << options.program << "   |   pipeline " << pipelineModeName(cpu.pipelineMode())
+      << "   |   microcode " << (cpu.controlMode() == ControlMode::Vertical ? "vertical" : "horizontal")
+      << "   |   stack " << (cpu.dynamicStack() ? "dynamic" : "fixed") << "\n";
+  out << "  CYCLE " << cpu.cycles() << "     RETIRED " << cpu.instructions() << "     "
+      << (cpu.exception() != ExceptionCode::NONE ? "EXCEPTION " + toString(cpu.exception()) :
+          cpu.halted() ? "HALTED" : options.playing ? "RUNNING" : "PAUSED") << "\n";
+  out << rule();
+  const std::size_t rows = std::max({code.size(), machine.size(), stack.size(), std::size_t{12}});
+  for (std::size_t i = 0; i < rows; ++i) {
+    out << "|" << pad(i < code.size() ? code[i] : "", left)
+        << "|" << pad(i < machine.size() ? machine[i] : "", middle)
+        << "|" << pad(i < stack.size() ? stack[i] : "", right) << "|\n";
+  }
+  out << rule();
+  out << "  PIPELINE / IN-FLIGHT INSTRUCTIONS\n";
+  for (const auto& line : pipelinePanel(cpu)) {
+    if (line != "PIPELINE") out << line << "\n";
+  }
+  out << std::string(width, '-') << "\n";
+  out << "  [SPACE] play / pause    [S] instruction    [C] cycle    [R] reset    [+/-] speed    [Q] quit\n";
+  out << "  " << (options.playing ? "[playing]" : "[paused]") << "  " << options.speedMs << "ms";
+  if (!options.status.empty()) out << "    " << options.status;
+  out << "\n";
+  return out.str();
+}
+
 }  // namespace
 
 MachineSnapshot snapshot(const Cpu& cpu) {
@@ -226,6 +286,7 @@ MachineSnapshot snapshot(const Cpu& cpu) {
 std::string renderFrame(const Cpu& cpu, const ViewOptions& options,
                         const MachineSnapshot* previous) {
   const uint32_t current = currentInstruction(cpu);
+  if (options.width >= 110) return presentationFrame(cpu, options, previous, current);
 
   std::ostringstream out;
   out << "RISC201 visualizer   " << options.program << "\n";
@@ -234,19 +295,22 @@ std::string renderFrame(const Cpu& cpu, const ViewOptions& options,
       << "   stack " << (cpu.dynamicStack() ? "dynamic" : "fixed") << "   cycles "
       << cpu.cycles() << "   instructions " << cpu.instructions() << "\n";
 
-  const std::size_t width = options.width > 60 ? static_cast<std::size_t>(options.width) - 2 : 88;
+  const std::size_t width = options.width >= 60 ? static_cast<std::size_t>(options.width) - 1 : 79;
   out << std::string(width, '-') << "\n";
 
-  const std::size_t leftWidth = width * 5 / 12;
-  out << columns(codePanel(options, current), leftWidth, machinePanel(cpu, previous));
-  out << std::string(width, '-') << "\n";
-
-  for (const std::string& line : pipelinePanel(cpu)) {
-    out << line << "\n";
+  if (width >= 100) {
+    const std::size_t leftWidth = 32;
+    out << columns(codePanel(options, current), leftWidth, machinePanel(cpu, previous));
+  } else {
+    out << columns(codePanel(options, current), 27, machinePanel(cpu, previous));
   }
   out << std::string(width, '-') << "\n";
-  for (const std::string& line : stackPanel(cpu, previous)) {
-    out << line << "\n";
+  if (width >= 95) {
+    out << columns(pipelinePanel(cpu), 49, stackPanel(cpu, previous));
+  } else {
+    for (const std::string& line : pipelinePanel(cpu)) out << line << "\n";
+    out << std::string(width, '-') << "\n";
+    for (const std::string& line : stackPanel(cpu, previous)) out << line << "\n";
   }
   out << std::string(width, '-') << "\n";
 
