@@ -1,0 +1,516 @@
+\documentclass[11pt,a4paper]{article}
+
+% --- Packages ---
+\usepackage[utf8]{inputenc}
+\usepackage[margin=0.9in]{geometry}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{enumitem}
+\usepackage{amsmath,amssymb}
+\usepackage{xcolor}
+\usepackage{microtype}
+\usepackage{hyperref}
+
+% --- Hyperref Setup ---
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue!75!black,
+    citecolor=blue!75!black,
+    urlcolor=blue!75!black
+}
+
+% --- List Styling: Strict Pointer Format ---
+\setlist[itemize]{noitemsep, topsep=2pt, partopsep=0pt, parsep=2pt, leftmargin=1.5em}
+\setlist[enumerate]{noitemsep, topsep=2pt, partopsep=0pt, parsep=2pt, leftmargin=1.5em}
+
+% --- Column Definitions ---
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+\newcolumntype{C}[1]{>{\centering\arraybackslash}p{#1}}
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+
+% --- Document Metadata ---
+\title{\textbf{RISC201 Processor Architecture \& Simulator System}\\[0.2em]
+\large Technical Design, Microarchitectural Evaluation, and Toolchain Specification}
+\author{\textbf{Computer Systems Design Group} \\ CSC-201 Computer Organization and Architecture}
+\date{November 2026}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+This report delivers an architectural analysis of \textbf{RISC201}, a 32-bit custom Reduced Instruction Set Computer (RISC) processor and simulation environment implemented in C++17. Designed to study core computer organization principles without unnecessary abstraction, the system encompasses a complete 31-instruction architecture (including integer arithmetic, bitwise logic, memory access, stack operations, control transfers, and IEEE 754 binary32 floating-point arithmetic). The report details: (1) instruction set encoding and memory partitioning; (2) arithmetic hardware models featuring hierarchical carry-lookahead addition, Wallace tree multiplication, restoring division, and Newton-Raphson floating-point division; (3) sequential reference, 4-stage, and 6-stage overlapped execution pipelines; (4) hazard handling via register forwarding, interlock stalling, and branch flushes; (5) dual-mode microprogrammed control comparing horizontal and vertical control stores; (6) a hardware-enforced memory safety and exception model; (7) the two-pass assembly and macro preprocessor toolchain along with the interactive full-screen animated terminal visualizer; and (8) empirical performance benchmarks across pipeline configurations and control representations.
+\end{abstract}
+
+\vspace{0.5em}
+\hrule
+\vspace{1em}
+
+% =========================================================================
+\section{Executive Summary}
+% =========================================================================
+
+\begin{itemize}
+    \item \textbf{System Identity:} RISC201 is a cycle-accurate 32-bit processor simulator developed in C++17 to model and analyze execution pipelines, microprogrammed control units, structural arithmetic circuits, memory protection guards, and software translation engines.
+    \item \textbf{Architectural Baseline:} Features 16 general-purpose 32-bit registers ($R0$--$R15$), a 32-bit Program Counter ($PC$), a full-descending 32-bit Stack Pointer ($SP$), and four condition flags ($Z, N, C, V$).
+    \item \textbf{Memory Organization:} Direct word-addressed memory of 4,096 words (16\,KiB total), partitioned into a protected code segment, general data segment, and bounded stack segment.
+    \item \textbf{Structural Arithmetic Logic Unit (ALU):} Uses shared arithmetic algorithms for addition, subtraction and multiplication. Includes a hierarchical Carry-Lookahead Adder (CLA), an 8-layer Carry-Save Wallace Tree multiplier, an unsigned restoring divider, and a software-defined IEEE 754 binary32 floating-point unit with Newton-Raphson division.
+    \item \textbf{Multi-Paradigm Execution Engines:} Incorporates three distinct execution models: a 4-stage non-overlapped sequential reference pipeline, a 4-stage overlapped pipeline, and a 6-stage overlapped pipeline with separate operand-fetch and memory-access stages.
+    \item \textbf{Comprehensive Hazard Mitigation:} Mitigates Read-After-Write (RAW) data hazards through execution-stage and write-back forwarding, resolves load-use and flag dependencies via pipeline stalls, and flushes incorrect speculatively fetched instructions upon branch resolution.
+    \item \textbf{Dual Control Memory Architectures:} Implements both a 32-bit single-cycle horizontal control ROM and a 16-bit vertical microcode store driven by an internal microprogram sequencer.
+    \item \textbf{Active Memory Safety Guard:} Enforces runtime boundaries on every load, store, push, pop, call, and return. Throws non-deferrable hardware exceptions on stack overflow, stack underflow, code region writes, and out-of-range addressing.
+    \item \textbf{Integrated Software Toolchain and Interactive Visualizer:} Includes an assembly macro preprocessor supporting recursive stack expansion, a two-pass assembler generating bare hex binaries, a disassembler, an interactive command-line interface (CLI) debugger, an ASCII stack visualizer, and a full-screen interactive animated terminal visualizer (\texttt{risc201-viz}).
+\end{itemize}
+
+% =========================================================================
+\section{System Architecture and Subsystem Decomposition}
+% =========================================================================
+
+\begin{itemize}
+    \item \textbf{Stateless Interface Contracts:} Subsystems communicate exclusively through clean functional interfaces and concrete value types defined in a frozen specification header, eliminating abstract virtual method overhead.
+    \item \textbf{Primary System Subsystems:}
+    \begin{itemize}
+        \item \textbf{Central Processing Unit (\texttt{Cpu}):} Maintains the complete architectural state (registers, $PC$, $SP$, $FLAGS$, memory, halt status, and exception latch). Injects component dependencies into the executors by reference.
+        \item \textbf{Execution Pipelines (\texttt{Pipeline}, \texttt{CyclePipeline}):} Drives step-by-step instruction execution in sequential mode or cycle-accurate tick transitions in pipelined modes.
+        \item \textbf{Arithmetic Logic Unit (\texttt{Alu}, \texttt{fp32}):} Stateless mathematical core that processes two 32-bit words, returning candidate flags, operation results, and error conditions.
+        \item \textbf{Control Unit (\texttt{ControlUnit}):} Decodes 32-bit instruction words into uniform internal control wires via horizontal table indexing or vertical microprogram sequence unfolding.
+        \item \textbf{Memory Safety Module (\texttt{MemorySafety}):} Evaluates all effective addresses and stack adjustments before memory commit, raising terminal exceptions upon violation.
+        \item \textbf{Assembly Toolchain (\texttt{risc201-asm}, \texttt{risc201-disasm}):} Converts human-readable assembly text into machine code binaries and provides reverse disassembling.
+        \item \textbf{Debugger and CLI Shell (\texttt{risc201-sim}):} Provides interactive terminal execution, register and memory inspection, breakpoints, watchpoints, and microcode tracing.
+        \item \textbf{Interactive Animated Visualizer (\texttt{risc201-viz}):} Standalone full-screen terminal visualizer rendering real-time disassembled code execution, register and stack delta mutations, and cycle-accurate pipeline latch occupancies.
+    \end{itemize}
+\end{itemize}
+
+% =========================================================================
+\section{Instruction Set Architecture (ISA) and Memory Model}
+% =========================================================================
+
+\subsection{Registers and Architectural State}
+\begin{itemize}
+    \item \textbf{General-Purpose Registers ($R0$--$R15$):} 16 general-purpose 32-bit registers. Unlike architectures such as MIPS, register $R0$ is not hardwired to zero and holds arbitrary mutable data.
+    \item \textbf{Program Counter ($PC$):} Points to the memory address of the current instruction word. Starts at initial address \texttt{0x000}.
+    \item \textbf{Stack Pointer ($SP$):} Implements a full-descending stack discipline. Decrements prior to pushing data and points to the last occupied word. Initializes to \texttt{0x1000} (one word past the physical stack limit).
+    \item \textbf{Condition Flags ($FLAGS$):}
+    \begin{itemize}
+        \item \textbf{Zero ($Z$):} Asserted when the operation output equals zero.
+        \item \textbf{Negative ($N$):} Reflects the sign bit (bit 31) of the operation output.
+        \item \textbf{Carry ($C$):} Asserted on unsigned addition carry-out or unsigned subtraction no-borrow.
+        \item \textbf{Overflow ($V$):} Asserted when signed two's-complement arithmetic exceeds representable bounds.
+    \end{itemize}
+\end{itemize}
+
+\subsection{Instruction Encodings and Formats}
+Every RISC201 instruction is exactly one 32-bit word in length. The high 6 bits (bits 31--26) uniformly represent the operation code (\texttt{opcode}).
+
+\begin{itemize}
+    \item \textbf{Register Type (R-Type):}
+    \begin{itemize}
+        \item \textbf{Field Layout:} \texttt{op[31:26]} $|$ \texttt{rd[25:22]} $|$ \texttt{rs[21:18]} $|$ \texttt{rt[17:14]} $|$ \texttt{unused[13:0]}.
+        \item \textbf{Usage:} Standard register-to-register arithmetic, bitwise logic, comparisons, data moves, and floating-point computations.
+    \end{itemize}
+    \item \textbf{Immediate Type (I-Type):}
+    \begin{itemize}
+        \item \textbf{Field Layout:} \texttt{op[31:26]} $|$ \texttt{rd[25:22]} $|$ \texttt{rs[21:18]} $|$ \texttt{imm[17:0]}.
+        \item \textbf{Usage:} Arithmetic with signed 18-bit immediates, constant loading, memory loads and stores, and stack manipulation.
+    \end{itemize}
+    \item \textbf{Jump Type (J-Type):}
+    \begin{itemize}
+        \item \textbf{Field Layout:} \texttt{op[31:26]} $|$ \texttt{offset[25:0]}.
+        \item \textbf{Usage:} Direct jumps, conditional branches, and subroutine calls. Offsets are signed 26-bit relative word distances calculated from $(PC + 1)$.
+    \end{itemize}
+\end{itemize}
+
+\begin{table}[h]
+\centering
+\small
+\caption{Complete RISC201 Instruction Set (31 Defined Instructions)}
+\vspace{0.4em}
+\begin{tabularx}{\textwidth}{l c c X}
+\toprule
+\textbf{Mnemonic} & \textbf{Opcode} & \textbf{Format} & \textbf{Architectural Operation and Semantics} \\
+\midrule
+\texttt{NOP}  & \texttt{0x00} & - & No operation; pipeline advances without state modification. \\
+\texttt{HALT} & \texttt{0x01} & - & Ceases CPU execution; marks machine permanently halted. \\
+\texttt{ADD}  & \texttt{0x02} & R & $rd = rs + rt$; updates $Z, N, C, V$. \\
+\texttt{SUB}  & \texttt{0x03} & R & $rd = rs - rt$; updates $Z, N, C, V$ ($C$ represents no-borrow). \\
+\texttt{MUL}  & \texttt{0x04} & R & $rd = \text{low32}(rs \times rt)$; signed product; updates $Z,N$; sets $V$ on signed 32-bit overflow; clears $C$. \\
+\texttt{DIV}  & \texttt{0x05} & R & $rd = rs / rt$ (unsigned integer division); preserves flags; zero divisor faults. \\
+\texttt{AND}  & \texttt{0x06} & R & $rd = rs \ \& \ rt$; updates $Z, N$; clears $C, V$. \\
+\texttt{OR}   & \texttt{0x07} & R & $rd = rs \ | \ rt$; updates $Z, N$; clears $C, V$. \\
+\texttt{XOR}  & \texttt{0x08} & R & $rd = rs \oplus rt$; updates $Z, N$; clears $C, V$. \\
+\texttt{NOT}  & \texttt{0x09} & R & $rd = \sim rs$; updates $Z, N$; clears $C, V$. \\
+\texttt{SHL}  & \texttt{0x0A} & R & $rd = rs \ll (rt \ \& \ 31)$; zero-filled left shift; preserves flags. \\
+\texttt{SHR}  & \texttt{0x0B} & R & $rd = rs \gg (rt \ \& \ 31)$; logical zero-filled right shift; preserves flags. \\
+\texttt{MOV}  & \texttt{0x0C} & R & $rd = rs$; register copy; preserves flags. \\
+\texttt{CMP}  & \texttt{0x0D} & R & Computes $rs - rt$; updates $Z, N, C, V$; does not alter destination register. \\
+\texttt{ADDI} & \texttt{0x10} & I & $rd = rs + \text{sign\_extend}(imm)$; updates $Z, N, C, V$. \\
+\texttt{LDI}  & \texttt{0x11} & I & $rd = \text{sign\_extend}(imm)$; loads immediate constant; preserves flags. \\
+\texttt{LW}   & \texttt{0x12} & I & $rd = \text{mem}[rs + imm]$; loads word from memory; preserves flags. \\
+\texttt{SW}   & \texttt{0x13} & I & $\text{mem}[rs + imm] = rd$; stores word to memory; preserves flags. \\
+\texttt{PUSH} & \texttt{0x14} & I & $SP = SP - 1$; then $\text{mem}[SP] = rd$; preserves flags. \\
+\texttt{POP}  & \texttt{0x15} & I & $rd = \text{mem}[SP]$; then $SP = SP + 1$; preserves flags. \\
+\texttt{RET}  & \texttt{0x16} & I & $PC = \text{mem}[SP]$; then $SP = SP + 1$; subroutine return; preserves flags. \\
+\texttt{JMP}  & \texttt{0x20} & J & $PC = PC + 1 + offset$; unconditional control transfer. \\
+\texttt{BEQ}  & \texttt{0x21} & J & If $Z == 1$, $PC = PC + 1 + offset$; branch if equal / zero. \\
+\texttt{BNE}  & \texttt{0x22} & J & If $Z == 0$, $PC = PC + 1 + offset$; branch if not equal / non-zero. \\
+\texttt{BLT}  & \texttt{0x23} & J & If $N \neq V$, $PC = PC + 1 + offset$; signed branch if less than. \\
+\texttt{BGE}  & \texttt{0x24} & J & If $N == V$, $PC = PC + 1 + offset$; signed branch if greater or equal. \\
+\texttt{CALL} & \texttt{0x25} & J & $SP = SP - 1$; $\text{mem}[SP] = PC + 1$; then $PC = PC + 1 + offset$. \\
+\texttt{FADD} & \texttt{0x17} & R & $rd = rs +_{fp} rt$; IEEE 754 binary32 addition; preserves flags. \\
+\texttt{FSUB} & \texttt{0x18} & R & $rd = rs -_{fp} rt$; IEEE 754 binary32 subtraction; preserves flags. \\
+\texttt{FMUL} & \texttt{0x19} & R & $rd = rs \times_{fp} rt$; IEEE 754 binary32 multiplication; preserves flags. \\
+\texttt{FDIV} & \texttt{0x1A} & R & $rd = rs /_{fp} rt$; IEEE 754 binary32 division; preserves flags. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Memory Map and Segmentation}
+The memory architecture is word-addressed across a 4,096-word address space (\texttt{0x000} to \texttt{0xFFF}), cleanly divided into three distinct segments:
+\begin{itemize}
+    \item \textbf{Code Segment (\texttt{0x000}--\texttt{0x7FF}, 2,048 words):} Contains the loaded executable program instructions. Read and execute permissions are granted; any write operation targeting this region immediately triggers an \texttt{INVALID\_MEM\_ACCESS} hardware exception.
+    \item \textbf{Data Segment (\texttt{0x800}--\texttt{heapTop}, dynamic allocation):} Read/write memory for global variables and dynamic heap allocation. Managed by the embedded dynamic allocator starting at \texttt{0x0800} and growing upward toward \texttt{heapTop}. When dynamic stack mode is enabled, the heap and stack share this memory region with hardware collision detection.
+    \item \textbf{Stack Segment (\texttt{heapTop}--\texttt{0xFFF}, dynamic allocation):} Read/write memory initialized with empty stack pointer \texttt{SP = 0x1000}, growing downwards. In conventional mode, the boundary is fixed at \texttt{0x0C00}. In dynamic stack mode, the boundary dynamically extends downward to \texttt{heapTop} (allowing up to 2,048 contiguous words when the heap is unallocated) and raises \texttt{STACK\_OVERFLOW} upon collision with the heap.
+\end{itemize}
+
+% =========================================================================
+\section{Arithmetic Logic Unit (ALU) Hardware Design}
+% =========================================================================
+
+\subsection{Architectural Model and Dispatch}
+\begin{itemize}
+    \item \textbf{Execution Function:} Exposed via \texttt{Alu::execute(AluOp op, uint32\_t a, uint32\_t b)}, returning an \texttt{AluResult} structure containing the 32-bit computation result, tentative flags ($Z, N, C, V$), and an exception code.
+    \item \textbf{Stateless Computation:} The ALU is purely functional; it does not read or mutate CPU registers, memory, or architectural flag registers. The pipeline commit stage decides whether tentative flags update architectural state based on control wires.
+    \item \textbf{Untyped Operands:} Register words are raw 32-bit bit patterns. The active opcode dictates whether a word is treated as an integer or an IEEE 754 float (e.g., bit pattern \texttt{0x3F800000} evaluates as floating-point $1.0$ under \texttt{FADD}, but integer $1065353216$ under \texttt{ADD}).
+\end{itemize}
+
+\subsection{Core Arithmetic Hardware Circuits}
+\begin{itemize}
+    \item \textbf{Hierarchical Carry-Lookahead Adder (CLA):}
+    \begin{itemize}
+        \item Generates individual bit generate ($g_i = a_i \cdot b_i$) and propagate ($p_i = a_i \oplus b_i$) signals.
+        \item Combines signals across 2, 4, 8, 16, and 32-bit groups, then distributes carries down the tree. Sixteen 2-bit ripple blocks produce the final sum, avoiding a full 32-bit ripple-carry chain.
+        \item Implements subtraction and comparisons through two's complement inversion: $a + (\sim b) + 1$.
+        \item For ADD/SUB/CMP, evaluates signed overflow as the XOR of the carry into and out of bit 31: $V = C_{31} \oplus C_{32}$, where $C_i$ denotes the carry into bit $i$.
+    \end{itemize}
+    
+    \item \textbf{Carry-Save Wallace Tree Multiplier:}
+    \begin{itemize}
+        \item Generates 32 partial-product bit rows from the multiplier.
+        \item Employs carry-save adder (CSA) blocks to reduce three 64-bit rows down to two without horizontal carry propagation:
+        \begin{equation*}
+            \text{Sum} = a \oplus b \oplus c, \quad \text{Carry} = ((a \mathbin{\&} b) \mathbin{|} (a \mathbin{\&} c) \mathbin{|} (b \mathbin{\&} c)) \ll 1
+        \end{equation*}
+        \item Cascades through 8 reduction layers ($32 \rightarrow 22 \rightarrow 15 \rightarrow 10 \rightarrow 7 \rightarrow 5 \rightarrow 4 \rightarrow 3 \rightarrow 2$).
+        \item Merges the final two 64-bit rows using two chained 32-bit CLA blocks, passing the low block's carry into the high block.
+        \item Converts unsigned full products to signed products using two's-complement boundary corrections: subtracting $(b \ll 32)$ when bit 31 of $a$ is set and $(a \ll 32)$ when bit 31 of $b$ is set.
+    \end{itemize}
+    
+    \item \textbf{Unsigned Restoring Divider:}
+    \begin{itemize}
+        \item Executes 32 algorithmic iterations using a 33-bit extended trial remainder held in a 64-bit container.
+        \item Shifts the remainder/quotient register left by one position and trial-subtracts the divisor via the CLA.
+        \item If the remainder is negative (bit 32 set), the trial fails, the quotient bit is set to 0, and the divisor is added back (restored). Otherwise, the quotient bit is set to 1.
+        \item On division by zero, the ALU returns a placeholder zero and \texttt{DIV\_BY\_ZERO}. The pipeline rejects the result without writing the faulting instruction's destination. Successful division retains quotient and remainder internally; the DIV instruction exposes only the unsigned quotient.
+    \end{itemize}
+\end{itemize}
+
+\subsection{IEEE 754 Binary32 Floating-Point Subsystem}
+\begin{itemize}
+    \item \textbf{Software Precision:} Stateless IEEE 754 binary32 arithmetic operating on raw 32-bit words.
+    \item \textbf{Normalized and Subnormal Representation:} The stored word contains a sign bit, an 8-bit biased exponent (bias 127), and 23 fraction bits. Finite nonzero inputs are converted to an unbiased exponent and normalized 24-bit significand. Subnormals start with exponent $-126$ and no hidden leading one, then normalize internally without loss.
+    \item \textbf{FADD/FSUB:} Handle special values, align significands using a right shift that preserves discarded information in a sticky bit, and add or subtract magnitudes with the shared CLA. The larger magnitude determines the sign of a nonzero difference. Normalize, round and pack the result; FSUB reverses the second operand's effective sign.
+    \item \textbf{FMUL:} XOR operand signs, CLA-add unbiased exponents, and multiply the 24-bit significands using the unsigned Wallace helper. Retain the complete 48-bit product before normalization and rounding.
+    \item \textbf{Newton-Raphson Floating-Point Division:}
+    \begin{itemize}
+        \item Computes the reciprocal $x \approx 1/d$ for normalized divisor $d \in [1, 2)$ using the quadratic iteration:
+        \begin{equation*}
+            x_{k+1} = x_k \cdot (2 - d \cdot x_k)
+        \end{equation*}
+        \item Starts at $x_0=1/2$ and performs six Q1.31 fixed-point refinements using full-width Wallace products and CLA subtractions. Operand exponents are subtracted through the CLA.
+        \item \textbf{Exact Residual Correction:} Let $b$ be the normalized 24-bit divisor significand, $S=2^{31}$, and $d=b/2^{23}$. The stored reciprocal $X$ represents $x=X/S$. Scale numerator $n$ so that $b\leq n<2b$, adjusting the exponent if necessary, and set $T=n\,2^{26}$. The estimate is $q=\lfloor nX/2^{28}\rfloor$. Six refinements bound the reciprocal error below eight stored integer units, so the untruncated quotient error is less than $n\,8/2^{28}<1$. Thus $q$ differs from $\lfloor T/b\rfloor$ by at most one. An exact Wallace product $qb$ and CLA residual check correct $q$ by at most one and recover the exact remainder.
+        \item The corrected quotient retains 27 bits. A nonzero exact remainder is jammed into its low sticky bit, allowing the shared rounding stage to apply the selected rounding rule.
+    \end{itemize}
+    \item \textbf{Shared Round/Pack Stage:} Retains guard, round and sticky information, normalizes the result, supports gradual underflow, rounds once using a CLA increment, and handles any carry from rounding. Exponent adjustments also use shared CLA helpers.
+    \item \textbf{Rounding Modes:} The \texttt{fp32} API supports Nearest-Even, Toward-Zero, Toward-Positive Infinity, and Toward-Negative Infinity. CPU instructions use Nearest-Even.
+    \item \textbf{Special Values:} Supports signed zeros, infinities and subnormals. NaN results are canonicalized to quiet NaN \texttt{0x7FC00000}; signaling NaN inputs set invalid status. Invalid operations include $0/0$, infinity divided by infinity, and zero multiplied by infinity. Finite nonzero division by zero returns signed infinity with floating-point divide-by-zero status.
+    \item \textbf{Status:} Each API call returns independent invalid, divide-by-zero, overflow, underflow and inexact indicators. Tininess is detected after rounding; exact subnormals do not raise underflow. Floating-point status is available to direct API callers. CPU floating instructions write the result word and preserve integer FLAGS.
+    \item \textbf{Zero and Overflow Results:} Exact cancellation gives positive zero except under Toward-Negative, which gives negative zero; like-signed zeros retain their effective sign. MUL/DIV signs are the XOR of operand signs. Overflow returns signed infinity or maximum finite magnitude according to the rounding mode, with overflow and inexact status.
+\end{itemize}
+
+
+\subsection{Shared Datapath and Flag Handling}
+\begin{itemize}
+    \item \textbf{Implementation Files:} \texttt{alu/alu.hpp} and \texttt{alu/alu.cpp} provide dispatch and shared CLA, Wallace, restoring and Newton helpers. \texttt{alu/float32.hpp} and \texttt{alu/float32.cpp} provide binary32 operations, rounding and status. Floating arithmetic reuses the shared CLA and Wallace helpers.
+    \item \textbf{Integer Contract:} ADD/SUB wrap modulo $2^{32}$. Signed MUL returns the low word and sets overflow when the full signed product is not the sign extension of that word. DIV is unsigned. Shift counts are masked with 31, and SHR is logical. Booth multiplication remains a tested internal reference; active MUL/FMUL use Wallace.
+    \item \textbf{Flag Commitment:} ADD, SUB, MUL, CMP and ADDI commit Z/N/C/V; logic instructions commit Z/N and clear C/V. DIV, shifts, moves, loads/stores and floating instructions preserve FLAGS. CMP writes no destination register. Candidate Z/N describe the raw result bits.
+\end{itemize}
+
+\subsection{Arithmetic Verification}
+\begin{itemize}
+    \item \texttt{tests/test\_alu.cpp} checks integer results and flags, arithmetic boundaries, full-width signed/unsigned Wallace products, Booth reference products, carry-save conservation, CLA carry/borrow, restoring quotient/remainder invariants, and 8,221 exact Newton significand divisions, including both correction directions.
+    \item \texttt{tests/test\_float32.cpp} checks special values, halfway rounding, gradual underflow, rounding into minimum normal, host-rounding independence, and 503,056 result/status comparisons against host binary32 arithmetic across four operations and four rounding modes.
+    \item \texttt{tests/test\_float.cpp} checks floating instruction dependencies, special values and preservation of integer FLAGS across sequential, four-stage and six-stage execution with both control encodings. Coverage combines directed boundary cases with deterministic random inputs.
+\end{itemize}
+
+% =========================================================================
+\section{Microarchitecture and Pipeline Organisations}
+% =========================================================================
+
+\subsection{Sequential Reference Pipeline}
+\begin{itemize}
+    \item \textbf{Structural Role:} Serves as the golden software verification model. Executes one instruction entirely to retirement in a single simulator invocation before starting the next.
+    \item \textbf{Internal Stages:} Instruction Fetch (IF), Instruction Decode / Operand Fetch (ID/OF), Execute (EX), and Write Back (WB).
+    \item \textbf{Execution Invariant:} Never exhibits overlapping instructions, stalls, or flushes. Delivers a strict baseline of exactly 1.00 Cycles Per Instruction (CPI).
+\end{itemize}
+
+\subsection{Overlapped 4-Stage Pipeline}
+\begin{itemize}
+    \item \textbf{Stage Topology:}
+    \begin{enumerate}
+        \item \textbf{Instruction Fetch (IF):} Fetches instruction word from $\text{mem}[PC]$; updates fetch pointer.
+        \item \textbf{Instruction Decode \& Operand Read (ID):} Decodes control signals and reads source registers $rs, rt$.
+        \item \textbf{Execute (EX):} Runs ALU operation, computes memory effective address, evaluates branch conditions, and updates $SP$.
+        \item \textbf{Write Back (WB):} Commits results to destination register $rd$, writes data to memory, and latches architectural flags and $SP$.
+    \end{enumerate}
+    \item \textbf{Inter-Stage Latches:} IF/ID, ID/EX, and EX/WB pipeline registers store in-flight instruction state between clock edges.
+\end{itemize}
+
+\subsection{Overlapped 6-Stage Pipeline}
+\begin{itemize}
+    \item \textbf{Stage Topology:}
+    \begin{enumerate}
+        \item \textbf{Instruction Fetch (IF):} Retrieves instruction word from $\text{mem}[PC]$.
+        \item \textbf{Instruction Decode (ID):} Decodes control wires and operation types; does not access register file.
+        \item \textbf{Operand Fetch (OF):} Reads source registers $rs, rt$ from register file or forwarding paths.
+        \item \textbf{Execute (EX):} Computes ALU results, evaluates branch direction, and calculates memory addresses.
+        \item \textbf{Memory Access (MEM):} Performs data cache read (load) or write (store) operations.
+        \item \textbf{Write Back (WB):} Retires final computational or loaded results to the register file and commits flags.
+    \end{enumerate}
+    \item \textbf{Inter-Stage Latches:} IF/ID, ID/OF, OF/EX, EX/MEM, and MEM/WB registers.
+    \item \textbf{Design Objective:} Decouples decoding from register access, and ALU calculation from memory access. In physical hardware, this isolates long propagation delays and shortens the critical path per clock cycle.
+\end{itemize}
+
+% =========================================================================
+\section{Hazard Detection and Mitigation Mechanisms}
+% =========================================================================
+
+\subsection{Data Hazards (Read-After-Write)}
+\begin{itemize}
+    \item \textbf{Hazard Definition:} Occurs when an instruction requires an operand that has been produced by an earlier instruction currently in flight but not yet committed to the register file.
+    \item \textbf{Register Forwarding Solution:}
+    \begin{itemize}
+        \item In the 4-stage pipeline, the ID stage inspects active destination registers in the EX and WB latches. If a match occurs, the newly computed value is bypassed directly into the execution inputs.
+        \item In the 6-stage pipeline, the OF stage bypasses results directly from the EX/MEM and MEM/WB stage latches.
+        \item \textbf{Empirical Impact:} Allows back-to-back arithmetic instructions (\texttt{hazard\_raw}) to execute with zero stall cycles, achieving continuous instruction flow.
+    \end{itemize}
+    \item \textbf{Load-Use Interlock Penalty:}
+    \begin{itemize}
+        \item When an instruction immediately follows a load word (\texttt{LW}) and depends on its loaded data, forwarding cannot eliminate the delay because the data is only available after memory retrieval.
+        \item The hazard detection unit forces a 1-cycle pipeline bubble (stall) in the decode/operand-fetch stage while the load completes its memory stage.
+    \end{itemize}
+\end{itemize}
+
+\subsection{Control Hazards (Branch and Jump Resolution)}
+\begin{itemize}
+    \item \textbf{Branch Evaluation Point:} Branches and jumps are evaluated and resolved during the Execute (EX) stage.
+    \item \textbf{Speculative Fetch Flush:} When a branch condition evaluates to taken, instructions fetched speculatively behind the branch belong to the incorrect path and must be purged.
+    \item \textbf{Flush Penalties Compared:}
+    \begin{itemize}
+        \item \textbf{4-Stage Pipeline:} Flushes 2 preceding stages (IF and ID).
+        \item \textbf{6-Stage Pipeline:} Flushes 3 preceding stages (IF, ID, and OF), yielding a higher cycle penalty per taken branch.
+    \end{itemize}
+\end{itemize}
+
+\subsection{Structural and Architectural Dependencies}
+\begin{itemize}
+    \item \textbf{Condition Flag Interlock:} Conditional branches evaluate flags as committed to the architectural register. If an unretired instruction in flight writes flags, subsequent branches stall until flags are committed.
+    \item \textbf{Stack Pointer Serialization:} Instructions that modify the stack pointer (\texttt{PUSH}, \texttt{POP}, \texttt{CALL}, \texttt{RET}) are serialized to preserve stack memory integrity and ordering.
+    \item \textbf{Memory Access Ordering:} Concurrent loads and stores are strictly serialized, ensuring no two memory operations overlap in memory stages.
+\end{itemize}
+
+% =========================================================================
+\section{Control Unit Architecture: Horizontal vs. Vertical Microcode}
+% =========================================================================
+
+\subsection{Control Architecture Overview}
+The control unit is microprogrammed and supports two interchangeable control memory formats that generate the exact same set of internal execution control signals (\texttt{ControlSignals}):
+\begin{itemize}
+    \item \textbf{Horizontal Control ROM:}
+    \begin{itemize}
+        \item \textbf{Word Width:} 32 bits wide.
+        \item \textbf{Encoding:} Fully unencoded control word containing 11 individual 1-bit control flags, two 1-bit multiplexer selects, and a 4-bit ALU operation identifier (17 active control bits total).
+        \item \textbf{Execution Model:} Single direct table lookup using the instruction opcode as an array index. Operates with zero sequencer state and zero decoding delay.
+    \end{itemize}
+    \item \textbf{Vertical Microcode Store:}
+    \begin{itemize}
+        \item \textbf{Word Width:} 16 bits wide.
+        \item \textbf{Encoding:} Compact encoded word containing a 4-bit micro-operation field (\texttt{MicroOp}), a 4-bit ALU operation selector, and 8 reserved bits.
+        \item \textbf{Execution Model:} Employs a microprogram sequencer. An opcode maps to a starting index in the microprogram memory. The sequencer walks successive micro-instructions until an \texttt{END} delimiter is encountered, accumulating control wires.
+        \item \textbf{Storage Footprint:} All 31 defined instructions are implemented within 90 words of a 128-word vertical control store. Microprogram lengths range from 1 word (\texttt{NOP}) to 4 words (\texttt{ADD}, \texttt{ADDI}).
+    \end{itemize}
+\end{itemize}
+
+\begin{table}[h]
+\centering
+\small
+\caption{Architectural Comparison: Horizontal vs. Vertical Control Representations}
+\vspace{0.4em}
+\begin{tabularx}{\textwidth}{l Y Y}
+\toprule
+\textbf{Architectural Attribute} & \textbf{Horizontal Control ROM} & \textbf{Vertical Microcode} \\
+\midrule
+\textbf{Control Word Width} & 32 bits (wide word) & 16 bits (narrow word) \\
+\textbf{Words Per Instruction} & Exactly 1 word per opcode & 1 to 4 micro-instructions \\
+\textbf{Decoding Logic} & None; direct wire mapping & Micro-operation decoder and sequencer \\
+\textbf{Hardware Extensibility} & Difficult; adding a control signal widens every ROM row & Simple; adding behavior requires appending narrow micro-operations \\
+\textbf{RISC201 Bit Efficiency} & Highly bit-efficient (fewer total bits read per program) & Reads more total control bits due to multiple words per RISC instruction \\
+\textbf{Pipeline Impact} & Produces identical signals; cycle counts match exactly & Produces identical signals; cycle counts match exactly \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+% =========================================================================
+\section{Memory Safety System and Hardware Protection}
+% =========================================================================
+
+\subsection{Active Gatekeeper Architecture}
+The memory safety subsystem functions as an authoritative hardware guard. The processor core cannot perform any memory access or stack pointer alteration without explicit validation:
+\begin{itemize}
+    \item \textbf{Pre-Commit Interception:} Prior to issuing a memory read, memory write, or stack pointer update in the Execute (EX) stage, the pipeline submits the effective address to \texttt{MemorySafety}.
+    \item \textbf{Safe Execution Pass-Through:} If the safety module returns \texttt{ExceptionCode::NONE}, execution proceeds without delay.
+    \item \textbf{Immediate Exception Abort:} If any safety invariant is violated, the pipeline immediately aborts the active instruction, sets the CPU exception latch, kills younger in-flight instructions, and halts execution with zero uncommitted architectural side effects.
+\end{itemize}
+
+\subsection{Hardware Exception Classifications}
+\begin{itemize}
+    \item \textbf{\texttt{STACK\_OVERFLOW} (Code 1):} Raised when a \texttt{PUSH} or \texttt{CALL} instruction attempts to decrement the stack pointer below the active boundary floor ($SP < \texttt{heapTop}$ in dynamic mode, or $SP < \texttt{0x0C00}$ in conventional mode upon collision).
+    \item \textbf{\texttt{STACK\_UNDERFLOW} (Code 2):} Raised when a \texttt{POP} or \texttt{RET} instruction attempts to increment the stack pointer past the initial empty stack boundary ($SP \ge \texttt{0x1000}$).
+    \item \textbf{\texttt{INVALID\_MEM\_ACCESS} (Code 3):} Raised under two conditions:
+    \begin{itemize}
+        \item Any load or store address targeting beyond the 4,096-word physical RAM limit ($\text{address} > \texttt{0x0FFF}$).
+        \item Any store instruction targeting the protected code segment ($\text{address} \le \texttt{0x07FF}$), preventing accidental or malicious program self-modification.
+    \end{itemize}
+    \item \textbf{\texttt{DIV\_BY\_ZERO} (Code 4):} Raised during integer division (\texttt{DIV}) when the divisor register equals zero.
+    \item \textbf{\texttt{ILLEGAL\_INSTRUCTION} (Code 5):} Raised during instruction decode if the 6-bit opcode does not map to any defined instruction.
+    \item \textbf{\texttt{PC\_OUT\_OF\_RANGE} (Code 6):} Raised during instruction fetch if the Program Counter exceeds the bounds of the code segment ($PC > \texttt{0x07FF}$).
+\end{itemize}
+
+\subsection{ASCII Stack Memory Frame Visualizer}
+\begin{itemize}
+    \item \textbf{Interactive Inspection:} The memory safety module exposes \texttt{renderStackAscii()}, which maps memory frames and prints an ASCII diagram to the terminal via the CLI \texttt{stack} command.
+    \item \textbf{Boundary Warnings:} Visually marks the exact $SP$ position, displays active word contents, and alerts users if the stack depth approaches the critical overflow threshold.
+\end{itemize}
+
+% =========================================================================
+\section{Software Toolchain and Grammar}
+% =========================================================================
+
+\subsection{Stack Macro Preprocessor}
+\begin{itemize}
+    \item \textbf{Role in Toolchain:} Acts as a source-to-source preprocessing pass before assembler ingestion, enabling multi-instruction full-descending stack operations.
+    \item \textbf{Macro Syntax:} Defined using \texttt{.macro NAME param1, param2} and terminated by \texttt{.endmacro}.
+    \item \textbf{Parameter Substitution:} Supports both named arguments (\verb|\name|) and positional index arguments (\verb|\1|, \verb|\2|).
+    \item \textbf{Recursive Expansion:} Supports nested macro expansion up to a maximum safety recursion depth of 64 levels. Self-referential infinite loops are caught and flagged with source line numbers.
+    \item \textbf{Source Line Fidelity:} Preserves original 1-based source line mapping, ensuring that syntax errors in expanded code point accurately to the calling source line.
+\end{itemize}
+
+\subsection{Two-Pass Assembler Architecture}
+The assembler translates assembly text (\texttt{.s}) into bare machine code files (\texttt{.hex}):
+\begin{itemize}
+    \item \textbf{No-Overkill Design:} Implemented as clean, functional C++ translation functions without unnecessary polymorphic vtables.
+    \item \textbf{Pass 1 (Symbol Resolution):} Strips comments (\texttt{;} and \texttt{\#}), trims whitespace, verifies standalone labels, builds the symbolic address table (\texttt{symbols[label] = instructionCount}), and verifies program size does not exceed 2,048 words.
+    \item \textbf{Pass 2 (Instruction Encoding):} Validates strict uppercase mnemonics and registers ($R0$--$R15$), parses immediate values, calculates branch and jump offsets relative to $(PC + 1)$, encodes instruction fields into 32-bit machine words, and writes an 8-digit hexadecimal file.
+\end{itemize}
+
+\subsection{Disassembler Engine (\texttt{risc201-disasm})}
+\begin{itemize}
+    \item \textbf{Inverse Binary Mapping:} Decodes raw 32-bit instruction words back into canonical human-readable assembly text using format-specific bit unpacking for R-type, I-type, and J-type instructions.
+    \item \textbf{Fault-Tolerant Decoding:} Undefined or malformed opcodes gracefully decode as \texttt{illegal 0xNN} without throwing runtime exceptions, ensuring robust disassembly during binary inspection.
+    \item \textbf{Standalone Batch Disassembly:} The standalone executable \texttt{risc201-disasm} ingests assembled \texttt{.hex} files and writes formatted \texttt{.s} assembly listings with explicit hex machine words, instruction mnemonics, and relative branch offsets.
+\end{itemize}
+
+\subsection{Interactive Animated Terminal Visualizer (\texttt{risc201-viz})}
+Implemented in \texttt{visualizer/} (\texttt{view.cpp}, \texttt{terminal.cpp}, and \texttt{main.cpp}), \texttt{risc201-viz} provides a standalone, full-screen animated terminal visualizer for inspecting cycle-by-cycle processor execution without external GUI or curses dependencies:
+\begin{itemize}
+    \item \textbf{Unified Toolchain Ingestion:} Accepts either human-readable assembly source files (\texttt{.s}, \texttt{.asm})---assembled in memory via \texttt{risc201\_assembler}---or pre-assembled machine binary files (\texttt{.hex}).
+    \item \textbf{Configurable Execution Environments:} Configurable via command-line flags to select the execution pipeline (\texttt{--mode sequential|4stage|6stage}), control memory model (\texttt{--micro horizontal|vertical}), and playback refresh interval (\texttt{--speed ms}).
+    \item \textbf{Multi-Panel ANSI Terminal View:} Employs a synchronized terminal interface partitioned into four real-time monitoring panels:
+    \begin{itemize}
+        \item \textbf{Disassembly Code Window:} A 14-instruction window of disassembled code displaying memory addresses, machine words, and mnemonics, highlighting the active instruction ($PC$ or oldest in-flight stage latch) with an active pointer (\texttt{>}).
+        \item \textbf{Architectural State and Delta Inspector:} Renders all 16 general-purpose registers ($R0$--$R15$) in hexadecimal with delta indicators (\texttt{<- was 0x...}) flagging values modified during the last step. Displays $PC$, $SP$, condition flags ($Z, N, C, V$), and execution status (\texttt{HALTED} or hardware exception code).
+        \item \textbf{Pipeline Stage Occupancy Panel:} In pipelined modes, displays the active instruction address and mnemonic residing in each stage latch (\texttt{IF}, \texttt{ID}, \texttt{OF}, \texttt{EX}, \texttt{MEM}, \texttt{WB}), alongside cumulative runtime stall, flush, and forwarding event counters.
+        \item \textbf{Stack Frame Memory Inspector:} Visualizes active stack words from current $SP$ downwards (up to 8 words), stack depth, boundary utilization, and dynamic change tags for newly written words.
+    \end{itemize}
+    \item \textbf{Interactive Execution Control:} Operates in raw terminal mode: \texttt{Space} toggles animated play/pause; \texttt{s} single-steps one retired instruction; \texttt{c} steps exactly one clock cycle; \texttt{+/-} adjusts animation speed; \texttt{r} resets the CPU state; and \texttt{q} exits.
+    \item \textbf{Batch Headless Rendering:} Automatically detects non-interactive output streams or the \texttt{--once} flag to execute programs to completion and emit the final machine frame once for test harnesses and terminal logging.
+\end{itemize}
+
+% =========================================================================
+\section{Empirical Evaluation and Benchmark Analysis}
+% =========================================================================
+
+\subsection{Benchmark Performance Matrix}
+The performance of the RISC201 processor was measured across a representative benchmark suite covering loops, recursive calls, deliberate stack faults, macro expansions, and synthetic hazard stress tests across all three execution engines and both control encodings.
+
+\begin{table}[h]
+\centering
+\small
+\caption{Empirical Execution Evaluation Matrix Across Pipeline Configurations}
+\vspace{0.4em}
+\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}} l l c c c c c c}
+\toprule
+\textbf{Benchmark} & \textbf{Pipeline Mode} & \textbf{Instr.} & \textbf{Cycles} & \textbf{CPI} & \textbf{Stalls} & \textbf{Flushes} & \textbf{Forwards} \\
+\midrule
+\texttt{loop.hex}         & Sequential & 44   & 44   & 1.00 & 0  & 0    & 0  \\
+\texttt{loop.hex}         & 4-Stage    & 44   & 65   & 1.48 & 10 & 9    & 11 \\
+\texttt{loop.hex}         & 6-Stage    & 44   & 95   & 2.16 & 20 & 18   & 11 \\
+\midrule
+\texttt{recursion.hex}    & Sequential & 40   & 40   & 1.00 & 0  & 0    & 0  \\
+\texttt{recursion.hex}    & 4-Stage    & 40   & 62   & 1.55 & 9  & 11   & 0  \\
+\texttt{recursion.hex}    & 6-Stage    & 40   & 94   & 2.35 & 18 & 22   & 4  \\
+\midrule
+\texttt{stack\_fault.hex} & Sequential & 1025 & 1026 & 1.00 & 0  & 0    & 0  \\
+\texttt{stack\_fault.hex} & 4-Stage    & 1025 & 2052 & 2.00 & 0  & 1024 & 0  \\
+\texttt{stack\_fault.hex} & 6-Stage    & 1025 & 4101 & 4.00 & 0  & 2048 & 0  \\
+\midrule
+\texttt{stack\_macros.hex}& Sequential & 12   & 12   & 1.00 & 0  & 0    & 0  \\
+\texttt{stack\_macros.hex}& 4-Stage    & 12   & 21   & 1.75 & 7  & 0    & 0  \\
+\texttt{stack\_macros.hex}& 6-Stage    & 12   & 30   & 2.50 & 14 & 0    & 0  \\
+\midrule
+\texttt{hazard\_raw.hex}  & Sequential & 7    & 7    & 1.00 & 0  & 0    & 0  \\
+\texttt{hazard\_raw.hex}  & 4-Stage    & 7    & 9    & 1.29 & 0  & 0    & 4  \\
+\texttt{hazard\_raw.hex}  & 6-Stage    & 7    & 11   & 1.57 & 0  & 0    & 7  \\
+\midrule
+\texttt{hazard\_load\_use.hex}& Sequential & 6    & 6    & 1.00 & 0  & 0    & 0  \\
+\texttt{hazard\_load\_use.hex}& 4-Stage    & 6    & 10   & 1.67 & 2  & 0    & 1  \\
+\texttt{hazard\_load\_use.hex}& 6-Stage    & 6    & 13   & 2.17 & 3  & 0    & 3  \\
+\midrule
+\texttt{hazard\_branch.hex}   & Sequential & 6    & 6    & 1.00 & 0  & 0    & 0  \\
+\texttt{hazard\_branch.hex}   & 4-Stage    & 6    & 10   & 1.67 & 1  & 1    & 1  \\
+\texttt{hazard\_branch.hex}   & 6-Stage    & 6    & 15   & 2.50 & 2  & 2    & 2  \\
+\bottomrule
+\end{tabular*}
+\end{table}
+
+\subsection{Architectural Findings and Analysis}
+\begin{itemize}
+    \item \textbf{Zero-Stall RAW Forwarding:} In \texttt{hazard\_raw}, data forwarding completely eliminates pipeline stalls across both the 4-stage and 6-stage models. The additional cycles observed (9 and 11 vs.\ 7) stem solely from initial pipeline fill and final drain latency.
+    \item \textbf{Branch Flush Penalties in Deeper Pipelines:} In looping and recursive programs, the 6-stage pipeline exhibits substantially higher CPI than the 4-stage pipeline ($2.16$ vs.\ $1.48$ in \texttt{loop}; $2.35$ vs.\ $1.55$ in \texttt{recursion}). Because branches resolve in EX, the 6-stage pipeline flushes 3 in-flight stages compared to 2 stages in the 4-stage pipeline, compounding latency over tight iterations.
+    \item \textbf{Stack Operation Serialization Overhead:} In \texttt{stack\_fault}, which performs continuous recursive calls until stack exhaustion, the strict serialization of stack modifications incurs a 2-cycle cost per call in the 4-stage pipeline and a 4-cycle cost per call in the 6-stage pipeline, resulting in CPIs of 2.00 and 4.00, respectively. Similarly, in \texttt{stack\_macros}, consecutive macro-expanded \texttt{PUSH} and \texttt{POP} instructions incur stack hazard interlocks (7 stalls in 4-stage, 14 stalls in 6-stage) to serialize stack pointer updates through the pipeline.
+    \item \textbf{Cycle Count vs.\ Clock Frequency Trade-off:} While the 6-stage pipeline records higher cycle counts, physical hardware implementations benefit from shorter stage critical paths, enabling higher clock frequencies that can outweigh cycle count inflation in sustained workloads.
+    \item \textbf{Microcode Representation Invariance:} Testing confirms that horizontal and vertical microcode modes produce strictly identical cycle counts, CPI, stalls, flushes, and machine states across all programs. The choice of control store influences control memory footprint and decoder complexity, but does not alter execution timing.
+\end{itemize}
+
+% =========================================================================
+\section{Conclusion}
+% =========================================================================
+
+\begin{itemize}
+    \item \textbf{Modular System Integrity:} RISC201 successfully models the full execution lifecycle of a modern RISC microprocessor through modular, strictly specified C++17 components.
+    \item \textbf{Structural Arithmetic:} The ALU models hierarchical carry-lookahead addition, carry-save Wallace multiplication, restoring integer division and corrected Newton-Raphson binary32 division. Shared CLA and Wallace helpers support both integer and floating-point arithmetic, with exact residual correction and a common rounding stage for binary32 results.
+    \item \textbf{Validated Microarchitectural Trade-offs:} Empirical benchmarking quantitatively highlights the fundamental trade-offs between pipeline depth, hazard stall overhead, branch penalties, and control store density.
+    \item \textbf{Robust Safety and Tooling:} The integrated memory safety guard, macro preprocessor, two-pass assembler, disassembler, interactive debugger, and animated terminal visualizer deliver a complete, resilient platform for computer architecture research and education.
+\end{itemize}
+
+\end{document}
