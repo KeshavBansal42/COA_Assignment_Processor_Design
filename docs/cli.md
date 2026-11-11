@@ -59,7 +59,8 @@ line is `name address` or `name = address`, and comments work the same way:
 | `mode <name>` | pick `sequential`, `4stage` or `6stage` (restarts the program) |
 | `micro <name>` | pick `horizontal` or `vertical` control memory |
 | `microtrace [address]` | show the microPC stepping through an instruction |
-| `cycles` | show cycles, instructions and the hazard counters |
+| `predictor <dynamic|static>` | select 2-bit prediction or always-not-taken baseline and restart |
+| `cycles` | show cycles, instructions, hazards and conditional branch prediction counts |
 | `help` | show the command list |
 | `quit` | leave the simulator |
 
@@ -181,3 +182,11 @@ onto the stack at 0xFFF, so watching that address catches the CALL:
     watchpoint at 0x00000fff
     > run
     watchpoint at 0x00000fff now 0x00000003
+
+## Conditional branch prediction
+
+The overlapped pipelines default to a 64-entry PC-indexed table of two-bit saturating
+counters, initialized weakly not taken. `predictor static` selects always not taken;
+`predictor dynamic` selects the table. Either command resets the machine and predictor
+history, while keeping the loaded program. `cycles` reports resolved conditional branches
+and direction mispredictions. Sequential mode does not perform speculative prediction.

@@ -25,6 +25,7 @@ while :; do
     ' 11. Long independent stream: pipeline fill and overlap' \
     ' 12. Long dependent chain: forwarding under load' \
     '  b. Compare all pipeline modes (benchmark)' \
+    '  p. Branch prediction: static versus 2-bit (benchmark)' \
     '  q. Quit'
   printf 'Choose a demo: '
   if ! IFS= read -r choice; then
@@ -45,8 +46,9 @@ while :; do
     11) program=bench_independent.hex ;;
     12) program=bench_dependent.hex ;;
     b|B) ./build/risc201-demo-benchmark; continue ;;
+    p|P) ./build/risc201-demo-benchmark --branch-prediction; continue ;;
     q|Q) exit 0 ;;
-    *) printf 'Please enter a number from 1 to 12, b for benchmark, or q to quit.\n'; continue ;;
+    *) printf 'Please enter a number from 1 to 12, b or p for benchmarks, or q to quit.\n'; continue ;;
   esac
   printf 'Pipeline mode [1=sequential, 2=4-stage, 3=6-stage; Enter=6-stage]: '
   if ! IFS= read -r mode_choice; then printf '\n'; exit 0; fi

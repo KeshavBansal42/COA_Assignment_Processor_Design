@@ -23,6 +23,7 @@ struct Case {
 };
 
 const Case cases[] = {
+    {"Loop", "loop.hex", 3, 55, false},
     {"Long independent stream", "bench_independent.hex", 15, 16, false},
     {"Long dependent chain", "bench_dependent.hex", 1, 192, false},
     {"Independent writes", "demo_independent.hex", 7, 77, false},
@@ -51,13 +52,15 @@ struct Result {
   uint32_t pc = 0, sp = 0;
   Flags flags{};
   uint64_t cycles = 0, instructions = 0, stalls = 0, forwards = 0, flushes = 0;
+  uint64_t branches = 0, misses = 0;
   unsigned peakInFlight = 0;
   bool halted = false;
   ExceptionCode exception = ExceptionCode::NONE;
 };
 
-Result run(const std::vector<uint32_t>& program, PipelineMode mode) {
+Result run(const std::vector<uint32_t>& program, PipelineMode mode, bool predict = true) {
   Cpu cpu;
+  cpu.setBranchPrediction(predict);
   cpu.load(program);
   cpu.setPipelineMode(mode);
   constexpr uint64_t limit = 10000;
@@ -80,6 +83,7 @@ Result run(const std::vector<uint32_t>& program, PipelineMode mode) {
   result.pc = cpu.pc(); result.sp = cpu.sp(); result.flags = cpu.flags();
   result.cycles = cpu.cycles(); result.instructions = cpu.instructions();
   result.stalls = cpu.stalls(); result.forwards = cpu.forwards(); result.flushes = cpu.flushes();
+  result.branches = cpu.branchPredictions(); result.misses = cpu.branchMispredictions();
   result.halted = cpu.halted(); result.exception = cpu.exception();
   return result;
 }
@@ -113,14 +117,52 @@ bool matches(const Result& a, const Result& b) {
          a.instructions == b.instructions;
 }
 
-int main() {
+// Compare policies on identical program state, with a fresh cold predictor per run.
+int branchBenchmark() {
+  const auto program = load("loop.hex");
+  const Result reference = run(program, PipelineMode::Sequential);
+  bool allGood = reference.halted && reference.exception == ExceptionCode::NONE &&
+                 reference.regs[3] == 55;
+  std::cout << "BRANCH PREDICTION BENCHMARK: loop.hex\n"
+            << "Sum 10 down to 1: R3 = 55. The branch runs 10 times: 9 taken, 1 not taken.\n"
+            << "Static always predicts not taken; dynamic uses a cold 2-bit predictor.\n"
+            << "Cycles are simulated; PASS checks final state against the sequential reference.\n\n"
+            << "  pipeline  policy                 branches  misses  correct  accuracy  cycles  retired  R3  state\n";
+  for (PipelineMode mode : {PipelineMode::FourStage, PipelineMode::SixStage}) {
+    for (bool predict : {false, true}) {
+      const Result result = run(program, mode, predict);
+      const bool pass = reference.halted && reference.exception == ExceptionCode::NONE &&
+                        reference.regs[3] == 55 && result.halted && matches(reference, result);
+      allGood = allGood && pass;
+      const uint64_t correct = result.branches - result.misses;
+      const double accuracy = result.branches ? 100.0 * correct / result.branches : 0.0;
+      std::cout << "  " << std::left << std::setw(10) << pipelineModeName(mode)
+                << std::setw(23) << (predict ? "2-bit dynamic" : "static not-taken")
+                << std::right << std::setw(8) << result.branches << std::setw(8) << result.misses
+                << std::setw(9) << correct << std::setw(9) << std::fixed << std::setprecision(1)
+                << accuracy << "%" << std::setw(8) << result.cycles << std::setw(9)
+                << result.instructions << std::setw(4) << result.regs[3] << "  "
+                << (pass ? "PASS" : "FAIL") << '\n';
+    }
+  }
+  std::cout << "\nEach policy starts from the same program state; predictor history resets on load.\n"
+               "Accuracy counts resolved conditional branch directions, not hardware execution time.\n";
+  return allGood ? 0 : 1;
+}
+
+int main(int argc, char** argv) {
   try {
+    if (argc == 2 && std::string(argv[1]) == "--branch-prediction") return branchBenchmark();
+    if (argc != 1) {
+      std::cerr << "usage: risc201-demo-benchmark [--branch-prediction]\n";
+      return 2;
+    }
     bool allGood = true;
     std::cout << "RISC201 PIPELINE DEMO BENCHMARK\n"
               << "Cycles are simulated. Host time is mean execution time over 100 runs (5 warmups),\n"
               << "excluding load/reset. It measures this simulator, not processor clock speed.\n"
               << "Sequential is modeled as one simulated cycle per instruction.\n"
-              << "The simulator fetches fall-through and flushes on taken branches; no trained predictor.\n\n";
+              << "Conditional branches use a 2-bit predictor; counts are resolved branches and direction misses.\n\n";
     for (const Case& example : cases) {
       const auto program = load(example.file);
       const Result reference = run(program, PipelineMode::Sequential);
@@ -129,7 +171,7 @@ int main() {
                   (!example.checkMemory || (reference.regs[2] == 42 && reference.memory[kDataBase] == 42));
       if (std::string(example.file) == "demo_branch_paths.hex") good = good && reference.regs[3] == 7;
       std::cout << example.name << "  (" << example.file << ")\n";
-      std::cout << "  mode          cycles  vs seq  retired   CPI   IPC  peak*  stalls  forwards  flush-events   host us/run  state\n";
+      std::cout << "  mode          cycles  vs seq  retired   CPI   IPC  peak*  stalls  forwards  flush-events  branches  misses   host us/run  state\n";
       for (PipelineMode mode : {PipelineMode::Sequential, PipelineMode::FourStage, PipelineMode::SixStage}) {
         const Result current = mode == PipelineMode::Sequential ? reference : run(program, mode);
         bool pass = good && current.halted && matches(reference, current);
@@ -147,7 +189,8 @@ int main() {
                   << (current.instructions ? static_cast<double>(current.cycles) / current.instructions : 0.0)
                   << std::setw(6) << (current.cycles ? static_cast<double>(current.instructions) / current.cycles : 0.0)
                   << std::setw(7) << current.peakInFlight << std::setw(8) << current.stalls << std::setw(10) << current.forwards
-                  << std::setw(14) << current.flushes << std::fixed << std::setprecision(2)
+                  << std::setw(14) << current.flushes << std::setw(10) << current.branches
+                  << std::setw(8) << current.misses << std::fixed << std::setprecision(2)
                   << std::setw(14) << hostUs << "  " << (pass ? "PASS" : "FAIL") << '\n';
       }
       std::cout << '\n';
@@ -156,8 +199,8 @@ int main() {
                  "IPC = retired instructions / simulated cycle.\n"
                  "* Peak is the maximum valid in-flight latches after a cycle (sequential shown as 1).\n"
                  "PASS compares registers, memory, PC, SP, flags, halt and retired count against sequential,\n"
-                 "and checks each example's expected result. The six-stage flush-event counter may count\n"
-                 "a single redirect twice; use these counts as simulator events, not branch predictions.\n";
+                 "and checks each example's expected result. Flush events also include unconditional redirects;\n"
+                 "branch misses count conditional direction predictions, separately from flushes.\n";
     return allGood ? 0 : 1;
   } catch (const std::exception& error) {
     std::cerr << "Benchmark error: " << error.what() << '\n';

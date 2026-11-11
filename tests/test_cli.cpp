@@ -119,6 +119,16 @@ void testDynamicCommand() {
   assert(bad.find("usage: dynamic <on|off>") != std::string::npos);
 }
 
+void testPredictorCommand() {
+  Cpu cpu;
+  const std::string result = runCommands(cpu, "mode 4stage\npredictor static\ncycles\npredictor dynamic\npredictor invalid\n");
+  assert(result.find("branch predictor static") != std::string::npos);
+  assert(result.find("branch predictor dynamic") != std::string::npos);
+  assert(result.find("branch predictions 0  mispredictions 0") != std::string::npos);
+  assert(result.find("usage: predictor <dynamic|static>") != std::string::npos);
+  assert(cpu.branchPredictionEnabled());
+}
+
 void testMissingFile() {
   Cpu cpu;
   const std::string output = runCommands(cpu, "load no_such_program.hex\n");
@@ -149,6 +159,7 @@ int main() {
   testMemCommand();
   testMicroTraceCommand();
   testDynamicCommand();
+  testPredictorCommand();
   testMissingFile();
   testUnknownCommand();
   testQuitEndsTheSession();

@@ -1,5 +1,12 @@
 # 4 stage vs 6 stage pipeline
 
+**Historical results:** the tables and explanation below predate the two-bit predictor
+and the fix for repeated six-stage redirect events. For current dynamic-predictor
+measurements see `evaluation_matrix.md`; run `./build/risc201-demo-benchmark
+--branch-prediction` from the project root for a current static versus dynamic
+comparison. The earlier six-stage values are not current static-baseline measurements either. A shorter hardware clock period is a possibility, not a measured
+result.
+
 Both pipelines are overlapped and cycle accurate, and both reach exactly the
 same machine state as the sequential reference (`tests/test_pipeline_hazards.cpp`).
 They differ in how many stages an instruction passes through and therefore in

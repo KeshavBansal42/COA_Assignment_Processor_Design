@@ -85,3 +85,9 @@ add_test(NAME visualizer COMMAND test_visualizer)
 add_executable(test_float test_float.cpp)
 target_link_libraries(test_float PRIVATE risc201_core risc201_assembler risc201_disassembler)
 add_test(NAME float COMMAND test_float)
+
+add_executable(test_branch_predictor test_branch_predictor.cpp)
+target_link_libraries(test_branch_predictor PRIVATE risc201_core)
+target_compile_definitions(test_branch_predictor
+  PRIVATE RISC201_PROGRAMS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/programs")
+add_test(NAME branch_predictor COMMAND test_branch_predictor)

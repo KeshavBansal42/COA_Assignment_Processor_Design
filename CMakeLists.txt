@@ -85,3 +85,4 @@ set_target_properties(risc201_demo_benchmark PROPERTIES OUTPUT_NAME risc201-demo
 target_link_libraries(risc201_demo_benchmark PRIVATE risc201_core)
 target_compile_definitions(risc201_demo_benchmark PRIVATE RISC201_PROGRAMS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/programs")
 add_test(NAME demo_benchmark COMMAND risc201_demo_benchmark)
+add_test(NAME branch_comparison COMMAND risc201_demo_benchmark --branch-prediction)

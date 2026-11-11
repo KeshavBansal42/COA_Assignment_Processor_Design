@@ -1,3 +1,5 @@
+> Control-word figures below are static per-program sums, not runtime reads or global control-store size. See `evaluation_matrix.md`.
+
 # Horizontal vs vertical microcode
 
 Both encodings drive the same datapath and, because the sequential and

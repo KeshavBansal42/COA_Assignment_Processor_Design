@@ -45,8 +45,7 @@ std::vector<uint32_t> loadProgram(const std::string& name) {
   return program;
 }
 
-// Control words the run reads: one wide word per instruction for horizontal,
-// the microprogram length for vertical.
+// Static sum over program words, not dynamic control-store reads.
 uint64_t controlWords(const std::vector<uint32_t>& program, bool vertical) {
   uint64_t total = 0;
   for (const uint32_t word : program) {
@@ -116,9 +115,9 @@ int main(int argc, char** argv) {
   md << "# Pipeline and microcode evaluation\n\n";
   md << "Runs every demo and hazard program under each pipeline and each control\n";
   md << "encoding. Cycles and instructions are per run, CPI is cycles per retired\n";
-  md << "instruction, and the control columns are how many control memory words\n";
-  md << "and bits the run reads (one 32-bit word per instruction for horizontal,\n";
-  md << "the microprogram length in 16-bit words for vertical).\n\n";
+  md << "instruction. Control words/bits are static sums over program words, not\n";
+  md << "dynamic reads or the size of the complete control store. Overlapped modes\n";
+  md << "use the 2-bit conditional branch predictor.\n\n";
   md << "| Program | Pipeline | Microcode | Instructions | Cycles | CPI | Stalls | "
         "Flushes | Forwards | Control words | Control bits |\n";
   md << "|---|---|---|---|---|---|---|---|---|---|---|\n";

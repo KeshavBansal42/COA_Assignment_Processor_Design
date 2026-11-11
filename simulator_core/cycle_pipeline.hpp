@@ -64,6 +64,8 @@ struct PipeLatch {
   uint32_t target = 0;
   uint32_t loadValue = 0;
   bool redirect = false;
+  bool predictedTaken = false;
+  uint32_t predictedNextPc = 0;
 
   // what this instruction writes, for hazard detection
   bool writesReg = false;
@@ -107,6 +109,9 @@ class CyclePipeline {
   uint64_t stalls() const { return stalls_; }
   uint64_t flushes() const { return flushes_; }
   uint64_t forwards() const { return forwards_; }
+  uint64_t branchPredictions() const { return branchPredictions_; }
+  uint64_t branchMispredictions() const { return branchMispredictions_; }
+  void setPredictionEnabled(bool enabled) { predictionEnabled_ = enabled; }
 
   // Latch 0 is the IF/ID latch, the highest index is the write back input.
   const PipeLatch& latch(int index) const { return lat_[index]; }
@@ -140,6 +145,11 @@ class CyclePipeline {
   std::array<PipeLatch, kMaxStages> lat_{};
   uint32_t fetchPc_ = 0;
 
+  // PC-indexed bimodal table, initially weakly not taken.
+  static constexpr std::size_t kPredictorEntries = 64;
+  std::array<uint8_t, kPredictorEntries> predictor_{};
+  bool predictionEnabled_ = true;
+
   bool draining_ = false;   // a stop was seen, only older instructions drain
   bool done_ = false;       // the machine has halted or faulted
   uint32_t stopPc_ = 0;
@@ -151,6 +161,8 @@ class CyclePipeline {
   uint64_t stalls_ = 0;
   uint64_t flushes_ = 0;
   uint64_t forwards_ = 0;
+  uint64_t branchPredictions_ = 0;
+  uint64_t branchMispredictions_ = 0;
 };
 
 }  // namespace risc201

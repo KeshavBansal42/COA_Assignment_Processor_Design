@@ -95,6 +95,10 @@ public:
   uint64_t stalls() const;
   uint64_t flushes() const;
   uint64_t forwards() const;
+  uint64_t branchPredictions() const;
+  uint64_t branchMispredictions() const;
+  void setBranchPrediction(bool enabled);
+  bool branchPredictionEnabled() const { return branchPredictionEnabled_; }
 
   // The overlapped pipeline in use, for the visualizer and the evaluation run.
   const CyclePipeline& cyclePipeline() const;
@@ -129,6 +133,7 @@ private:
   CyclePipeline cycle6_{*this, alu_, control_, safety_, 6};
 
   PipelineMode mode_ = PipelineMode::Sequential;
+  bool branchPredictionEnabled_ = true;
   uint64_t cycles_ = 0;
   uint64_t instructions_ = 0;
 };

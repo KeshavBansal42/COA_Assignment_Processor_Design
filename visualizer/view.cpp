@@ -151,6 +151,10 @@ std::vector<std::string> pipelinePanel(const Cpu& cpu) {
   counters << " stalls " << pipeline.stalls() << "  flushes " << pipeline.flushes()
            << "  forwards " << pipeline.forwards();
   lines.push_back(counters.str());
+  std::ostringstream prediction;
+  prediction << " branches " << pipeline.branchPredictions()
+             << "  mispredictions " << pipeline.branchMispredictions();
+  lines.push_back(prediction.str());
   return lines;
 }
 

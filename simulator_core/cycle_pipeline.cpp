@@ -9,6 +9,11 @@ namespace risc201 {
 
 namespace {
 
+bool isConditionalBranch(Opcode opcode) {
+  return opcode == Opcode::BEQ || opcode == Opcode::BNE ||
+         opcode == Opcode::BLT || opcode == Opcode::BGE;
+}
+
 // BEQ/BNE test Z, BLT/BGE compare the sign and overflow flags.
 bool branchTaken(Opcode opcode, const Flags& flags) {
   switch (opcode) {
@@ -38,6 +43,7 @@ void CyclePipeline::reset() {
     latch = PipeLatch{};
   }
   fetchPc_ = cpu_.pc();
+  predictor_.fill(1);  // weakly not taken on reset
   draining_ = false;
   done_ = false;
   stopPc_ = 0;
@@ -48,6 +54,8 @@ void CyclePipeline::reset() {
   stalls_ = 0;
   flushes_ = 0;
   forwards_ = 0;
+  branchPredictions_ = 0;
+  branchMispredictions_ = 0;
 }
 
 int CyclePipeline::operandStage() const { return stages_ == 4 ? 1 : 2; }
@@ -80,18 +88,28 @@ PipeLatch CyclePipeline::fetchLatch() {
   PipeLatch out;
   out.valid = true;
   out.pc = fetchPc_;
+  // Defer a speculative fetch fault until this latch reaches execute. An older
+  // branch may redirect and squash it before it becomes architecturally real.
+  if (fetchPc_ > kCodeLimit) {
+    out.stopException = ExceptionCode::PC_OUT_OF_RANGE;
+    return out;
+  }
   out.instr = cpu_.readMem(fetchPc_);
-  ++fetchPc_;
+  out.predictedTaken = predictionEnabled_ && isConditionalBranch(decodeOpcode(out.instr)) &&
+                       predictor_[fetchPc_ % kPredictorEntries] >= 2;
+  out.predictedNextPc = out.predictedTaken
+      ? fetchPc_ + 1 + static_cast<uint32_t>(decodeOffset(out.instr)) : fetchPc_ + 1;
+  fetchPc_ = out.predictedNextPc;
   return out;
 }
 
 // Decode only reads the instruction, operands come later.
 PipeLatch CyclePipeline::decodeLatch(const PipeLatch& in) {
   PipeLatch out = in;
+  if (out.stopException != ExceptionCode::NONE) return out;
   out.signals = control_.decode(in.instr);
 
   if (out.signals.illegal) {
-    out.stop = true;
     out.stopException = ExceptionCode::ILLEGAL_INSTRUCTION;
     return out;
   }
@@ -269,6 +287,12 @@ PipeLatch CyclePipeline::executeLatch(const PipeLatch& in) {
   PipeLatch out = in;
   const ControlSignals& s = in.signals;
 
+  // A younger speculative fetch/decode fault must not stop an older redirect.
+  if (in.stopException != ExceptionCode::NONE) {
+    out.stop = true;
+    return out;
+  }
+
   if (s.halt) {
     out.stop = true;
     out.stopIsHalt = true;
@@ -330,7 +354,20 @@ PipeLatch CyclePipeline::executeLatch(const PipeLatch& in) {
     out.storeValue = in.storeData;
   }
 
-  if (s.jump || (s.branch && branchTaken(s.opcode, cpu_.flags()))) {
+  if (s.branch) {
+    const bool taken = branchTaken(s.opcode, cpu_.flags());
+    const uint32_t actualNext = taken
+        ? in.pc + 1 + static_cast<uint32_t>(decodeOffset(in.instr)) : in.pc + 1;
+    ++branchPredictions_;
+    if (taken != in.predictedTaken) ++branchMispredictions_;
+    if (predictionEnabled_) {
+      uint8_t& counter = predictor_[in.pc % kPredictorEntries];
+      if (taken && counter < 3) ++counter;
+      if (!taken && counter > 0) --counter;
+    }
+    out.target = actualNext;
+    out.redirect = actualNext != in.predictedNextPc;
+  } else if (s.jump) {
     out.target = in.pc + 1 + static_cast<uint32_t>(decodeOffset(in.instr));
     out.redirect = true;
   }
@@ -439,7 +476,7 @@ void CyclePipeline::cycle() {
       stopLatch = out;
       break;
     }
-    if (out.redirect) {
+    if (i == exIdx && out.redirect) {
       // The branch resolved, everything fetched behind it is wrong, stop here.
       redirecting = true;
       redirectTarget = out.target;
@@ -486,15 +523,7 @@ void CyclePipeline::cycle() {
   }
 
   if (wantFetch) {
-    if (fetchPc_ > kCodeLimit) {
-      // PC has walked off the end of the code region.
-      draining_ = true;
-      stopPc_ = fetchPc_;
-      stopHalt_ = false;
-      stopException_ = ExceptionCode::PC_OUT_OF_RANGE;
-    } else {
-      next[0] = fetchLatch();
-    }
+    next[0] = fetchLatch();
   }
 
   lat_ = next;

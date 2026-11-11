@@ -1,3 +1,5 @@
+> Branch-control update: conditional branches now use a two-bit predictor; only a wrong predicted next PC requires a conditional-branch flush. See `docs/cli.md` and `tests/test_branch_predictor.cpp`.
+
 # Simulator core design
 
 The simulator is `risc201::Cpu` in `simulator_core/`. Everything else in the core exists

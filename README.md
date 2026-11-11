@@ -2,8 +2,9 @@
 
 A RISC201 simulator in C++17: the full ISA on a selectable pipeline (sequential,
 4-stage or 6-stage, the last two overlapped with forwarding, hazard stalls and
-branch flushes), driven by a command line shell with a breakpoint and watchpoint
-debugger, plus an animated code and machine state visualizer.
+branch recovery and a two-bit conditional branch predictor), driven by a command
+line shell with a breakpoint and watchpoint debugger, plus an animated code and
+machine state visualizer.
 
 CSC-201 Computer Organization & Architecture, Autumn 2026.
 
@@ -34,9 +35,11 @@ CSC-201 Computer Organization & Architecture, Autumn 2026.
     ./build/risc201-sim tests/programs/loop.hex
 
 Type `help` inside the simulator for the command list, or read `docs/cli.md`.
-`mode` picks the pipeline, `micro` picks the control encoding, `cycles` shows
-the counters, `stack` renders the ASCII stack frames and `microtrace` prints the
-microPC stepping through the control store for one instruction. `dynamic on`
+`mode` picks the pipeline, `micro` picks the control encoding, and `cycles`
+shows counters including branch predictions and misses. `stack` renders ASCII
+stack frames; `predictor dynamic` or `predictor static` selects the branch policy
+and restarts the program. `microtrace` prints the microPC stepping through the
+control store for one instruction. `dynamic on`
 switches the stack from the fixed `0xC00` floor to one that follows the heap
 high-water mark, so the stack can grow into the data region.
 
@@ -50,6 +53,11 @@ registers, the stack and the pipeline:
     ./build/risc201-viz tests/programs/loop.hex --mode 6stage
     ./build/risc201-viz tests/programs/recursion.hex --micro vertical
     ./build/risc201-viz tests/programs/recursion.hex --dynamic-stack
+
+For a side-by-side branch predictor benchmark, run `./demo` and choose `p`, or run
+`./build/risc201-demo-benchmark --branch-prediction`. It checks the same loop's
+final state in both pipeline modes with static and two-bit prediction, and shows
+simulated cycles and prediction accuracy.
 
 The evaluation harness prints the pipeline and microcode comparison numbers:
 

@@ -1,3 +1,5 @@
+> Branch-control update: conditional branches now use a two-bit predictor; only a wrong predicted next PC requires a conditional-branch flush. See `docs/cli.md` and `tests/test_branch_predictor.cpp`.
+
 # 6 stage datapath
 
 Implemented by `CyclePipeline` with `stages = 6` (see `simulator_core/cycle_pipeline.cpp`).

@@ -145,6 +145,15 @@ bool Cli::execute(const std::string& line) {
     } else {
       out_ << "usage: mode <sequential|4stage|6stage>\n";
     }
+  } else if (command == "predictor") {
+    std::string name;
+    if (!(input >> name) || (name != "dynamic" && name != "static")) {
+      out_ << "usage: predictor <dynamic|static>\n";
+    } else {
+      cpu_.setBranchPrediction(name == "dynamic");
+      cpu_.reset();
+      out_ << "branch predictor " << name << " (program restarted)\n";
+    }
   } else if (command == "micro") {
     std::string name;
     if (input >> name) {
@@ -395,6 +404,8 @@ void Cli::commandCycles() const {
   if (cpu_.pipelineMode() != PipelineMode::Sequential) {
     out_ << "stalls " << cpu_.stalls() << "  flushes " << cpu_.flushes() << "  forwards "
          << cpu_.forwards() << "\n";
+    out_ << "branch predictions " << cpu_.branchPredictions()
+         << "  mispredictions " << cpu_.branchMispredictions() << "\n";
   }
 }
 
@@ -548,6 +559,7 @@ void Cli::printHelp() const {
   out_ << "stack [n]           show the top n stack words, default 16\n";
   out_ << "dynamic <on|off>    let the stack grow into the data region\n";
   out_ << "mode <name>         sequential, 4stage or 6stage pipeline\n";
+  out_ << "predictor <name>    dynamic (2-bit) or static (not taken); restart\n";
   out_ << "micro <name>        horizontal or vertical microcode\n";
   out_ << "microtrace [addr]   show the microPC steps for an instruction\n";
   out_ << "cycles              show cycles, instructions and hazard counts\n";

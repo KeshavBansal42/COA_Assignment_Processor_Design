@@ -155,4 +155,18 @@ uint64_t Cpu::forwards() const {
   return mode_ == PipelineMode::Sequential ? 0 : cyclePipeline().forwards();
 }
 
+uint64_t Cpu::branchPredictions() const {
+  return mode_ == PipelineMode::Sequential ? 0 : cyclePipeline().branchPredictions();
+}
+
+uint64_t Cpu::branchMispredictions() const {
+  return mode_ == PipelineMode::Sequential ? 0 : cyclePipeline().branchMispredictions();
+}
+
+void Cpu::setBranchPrediction(bool enabled) {
+  branchPredictionEnabled_ = enabled;
+  cycle4_.setPredictionEnabled(enabled);
+  cycle6_.setPredictionEnabled(enabled);
+}
+
 }  // namespace risc201
